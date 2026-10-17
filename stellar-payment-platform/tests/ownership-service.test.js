@@ -54,6 +54,11 @@ const sdk = require('@stellar/stellar-sdk');
 const {
   authenticateUsernameOwner,
   verifyFreighterSignedMessage,
+  getCachedAccountSigners,
+  setSignerRedisClient,
+  clearSignerCache,
+  SIGNER_CACHE_TTL_MS,
+  SIGNER_CACHE_KEY_PREFIX,
 } = require('../src/services/ownershipService');
 
 const crypto = require('crypto');
@@ -150,6 +155,8 @@ describe('verifyFreighterSignedMessage', () => {
 describe('authenticateUsernameOwner', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    clearSignerCache();
+    setSignerRedisClient(null);
     sdk.__mockVerify.mockReturnValue(true);
     prisma.user.findUnique.mockResolvedValue({
       username: 'alice',
@@ -293,5 +300,128 @@ describe('authenticateUsernameOwner', () => {
     expect(result.username).toBe('alice');
     expect(verifyMultiSignerThreshold).not.toHaveBeenCalled();
     expect(sdk.__mockVerify).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Horizon signer list cache (#281)', () => {
+  const SAMPLE_SIGNERS = {
+    accountId: VALID_ADDRESS,
+    signers: [{ key: OTHER_ADDRESS, weight: 2, signer_type: 'ed25519_public_key' }],
+    thresholds: { low_threshold: 1, med_threshold: 2, high_threshold: 2 },
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    clearSignerCache();
+    setSignerRedisClient(null);
+    prisma.user.findUnique.mockResolvedValue({
+      username: 'alice',
+      address: VALID_ADDRESS,
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('defaults SIGNER_CACHE_TTL_MS to 60 seconds (60000 ms)', () => {
+    expect(SIGNER_CACHE_TTL_MS).toBe(60000);
+  });
+
+  it('uses cached signers on the second ownership check for the same address (cache hit & miss)', async () => {
+    const mockRedis = {
+      isReady: true,
+      get: jest.fn().mockResolvedValue(null),
+      pSetEx: jest.fn().mockResolvedValue('OK'),
+    };
+    verifyMultiSignerThreshold.mockResolvedValue({
+      success: true,
+      signers: SAMPLE_SIGNERS.signers,
+      thresholds: SAMPLE_SIGNERS.thresholds,
+    });
+
+    // First call: cache miss -> fetches from Horizon via verifyMultiSignerThreshold & writes to Redis
+    const first = await authenticateUsernameOwner({
+      username: 'alice',
+      signature: OTHER_ADDRESS,
+      redisClient: mockRedis,
+    });
+    expect(first.username).toBe('alice');
+    expect(verifyMultiSignerThreshold).toHaveBeenCalledTimes(1);
+    expect(mockRedis.pSetEx).toHaveBeenCalledWith(
+      `${SIGNER_CACHE_KEY_PREFIX}${VALID_ADDRESS}`,
+      SIGNER_CACHE_TTL_MS,
+      expect.any(String),
+    );
+
+    // Second call for the same address: cache hit -> does not invoke verifyMultiSignerThreshold again
+    const second = await authenticateUsernameOwner({
+      username: 'alice',
+      signature: OTHER_ADDRESS,
+      redisClient: mockRedis,
+    });
+    expect(second.username).toBe('alice');
+    expect(verifyMultiSignerThreshold).toHaveBeenCalledTimes(1);
+  });
+
+  it('serves cached signers directly from Redis when in-memory cache is cold', async () => {
+    const mockRedis = {
+      isReady: true,
+      get: jest.fn().mockResolvedValue(JSON.stringify(SAMPLE_SIGNERS)),
+      pSetEx: jest.fn(),
+    };
+
+    const result = await authenticateUsernameOwner({
+      username: 'alice',
+      signature: OTHER_ADDRESS,
+      redisClient: mockRedis,
+    });
+
+    expect(result.username).toBe('alice');
+    expect(mockRedis.get).toHaveBeenCalledWith(`${SIGNER_CACHE_KEY_PREFIX}${VALID_ADDRESS}`);
+    expect(verifyMultiSignerThreshold).not.toHaveBeenCalled();
+  });
+
+  it('expires the cached signer list after SIGNER_CACHE_TTL_MS', async () => {
+    let now = 1_700_000_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+
+    const fetchFn = jest.fn().mockResolvedValue(SAMPLE_SIGNERS);
+
+    // 1. Miss at t=0
+    const first = await getCachedAccountSigners(VALID_ADDRESS, { fetchFn, ttlMs: 60_000 });
+    expect(first).toEqual(SAMPLE_SIGNERS);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+
+    // 2. Hit before TTL expires (t + 59,999ms)
+    now += 59_999;
+    const second = await getCachedAccountSigners(VALID_ADDRESS, { fetchFn, ttlMs: 60_000 });
+    expect(second).toEqual(SAMPLE_SIGNERS);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+
+    // 3. Expired at t + 60,000ms -> fetches from Horizon again
+    now += 1;
+    const third = await getCachedAccountSigners(VALID_ADDRESS, { fetchFn, ttlMs: 60_000 });
+    expect(third).toEqual(SAMPLE_SIGNERS);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls through to Horizon without throwing 503 when Redis is unavailable', async () => {
+    const failingRedis = {
+      isReady: true,
+      get: jest.fn().mockRejectedValue(new Error('ECONNREFUSED 127.0.0.1:6379')),
+      pSetEx: jest.fn().mockRejectedValue(new Error('ECONNREFUSED 127.0.0.1:6379')),
+    };
+    verifyMultiSignerThreshold.mockResolvedValue({ success: true });
+
+    const result = await authenticateUsernameOwner({
+      username: 'alice',
+      signature: OTHER_ADDRESS,
+      redisClient: failingRedis,
+    });
+
+    expect(result.username).toBe('alice');
+    expect(failingRedis.get).toHaveBeenCalledWith(`${SIGNER_CACHE_KEY_PREFIX}${VALID_ADDRESS}`);
+    expect(verifyMultiSignerThreshold).toHaveBeenCalledTimes(1);
   });
 });
