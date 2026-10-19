@@ -1,0 +1,47 @@
+# cargo-deny configuration for payment_router
+# Enforces license compliance with the project's MIT/Apache-2.0 dual licence.
+# Only the [licenses] section is active; advisory checks are handled by
+# cargo-audit in a separate CI step.
+
+[licenses]
+# Licenses that are unconditionally allowed.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+]
+
+# Treat unlicensed crates as an error.
+unlicensed = "deny"
+
+# Deny any licence not in the allow list.
+allow-osi-fsf-free = "neither"
+
+# Confidence threshold for licence text detection (0.0–1.0).
+confidence-threshold = 0.8
+
+# Exceptions for crates that use licenses outside the allow list above.
+# Add entries here if cargo deny identifies a specific crate that requires
+# an exception, with a comment explaining why it is acceptable.
+exceptions = []
+
+[advisories]
+# Advisory checks are intentionally skipped here; cargo-audit handles them.
+ignore = []
+
+[bans]
+# Dependency banning is out of scope for this check.
+multiple-versions = "allow"
+
+[sources]
+# Allow crates from crates.io and path dependencies (ethnum-patch).
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
