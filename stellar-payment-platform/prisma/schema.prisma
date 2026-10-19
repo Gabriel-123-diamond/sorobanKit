@@ -209,21 +209,19 @@ model WebhookEvent {
   @@map("webhook_events")
 }
 
-// #599 — Self-service activity trail. Records the account-affecting events a
-// user can review for their own username through
-// GET /users/:username/activity. Rows go away with the user so a purge does
-// not leave an orphaned trail behind.
+// ActivityLog records per-user activity events surfaced by
+// GET /users/:username/activity. The endpoint filters by username and a
+// created_at date range, so a composite (userId, created_at) index lets
+// PostgreSQL satisfy both the equality and range predicates with an index
+// scan instead of a full table scan as the table grows.
 model ActivityLog {
   id        String   @id @default(uuid())
-  username  String
-  user      User     @relation(fields: [username], references: [username], onDelete: Cascade)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [username], onDelete: Cascade)
   action    String
   metadata  Json?
-  ipAddress String?  @map("ip_address")
   createdAt DateTime @default(now()) @map("created_at")
 
-  // Serves the only read path: one user's trail, newest first, optionally
-  // bounded by a date range.
-  @@index([username, createdAt])
+  @@index([userId, createdAt])
   @@map("activity_logs")
 }
