@@ -8,6 +8,7 @@
     "prepare": "husky",
     "load:test": "artillery run artillery.yml",
     "generate:bindings": "bash scripts/generate-bindings.sh",
+    "test:unit": "npm --prefix stellar-payment-platform test -- --testPathPattern=tests/unit --passWithNoTests",
     "test:integration": "bash tests/integration/run.sh",
     "contract:build": "node scripts/deploy.js build",
     "contract:deploy": "node scripts/deploy.js deploy",

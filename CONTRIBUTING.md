@@ -68,6 +68,15 @@ feat(tags): add pagination to tag listing
   ```
 - Match the existing structure, naming, and patterns in the codebase.
 
+## Pre-commit Hook
+
+This repository uses [Husky](https://typicode.github.io/husky/) to run checks before each commit (see `.husky/pre-commit`). The hook runs:
+
+1. **Lint** — `npm run lint` (ESLint).
+2. **Unit tests** — `npm run test:unit`, which runs Jest against `tests/unit` only (`--testPathPattern=tests/unit --passWithNoTests`).
+
+The hook is intentionally limited to a fast subset of tests so it completes in under 30 seconds on a modern developer machine. Integration and e2e tests, as well as Rust tests, are **not** run in the hook — they are covered by CI. A failing unit test will block the commit; fix the failure (or, if you must, bypass with `git commit --no-verify`, though CI will still enforce the checks).
+
 ## Tests
 
 All changes should include or update tests where appropriate. Run the full test suite before opening a PR:
