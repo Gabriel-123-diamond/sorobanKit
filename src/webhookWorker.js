@@ -24,6 +24,26 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function redactUrl(url) {
+  if (typeof url !== 'string' || url.length === 0) {
+    return null;
+  }
+  try {
+    return new URL(url).hostname || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function safeLogContext(event) {
+  return {
+    event_id: event && event.id ? event.id : null,
+    event_type: event && event.event_type ? event.event_type : null,
+    merchant_id: event && event.merchant_id ? event.merchant_id : null,
+    webhook_domain: redactUrl(event && event.url),
+  };
+}
+
 async function processWebhookEvent(event) {
   let attempt = 0;
   let lastError = null;
@@ -102,6 +122,8 @@ module.exports = {
   processWebhookEvent,
   isRetryableStatus,
   backoffDelayMs,
+  redactUrl,
+  safeLogContext,
   MAX_ATTEMPTS,
   RETRYABLE_STATUS_CODES,
 };
