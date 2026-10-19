@@ -90,3 +90,32 @@ jobs:
         
       - name: Verify Vite Build (Catches Vercel Crashes)
         run: npm run build
+
+  test-all:
+    name: Full Test Suite (test:all)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Root Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Install Frontend Dependencies
+        run: npm install --legacy-peer-deps
+        working-directory: ./payment-dashboard
+
+      - name: Install Backend Dependencies
+        run: npm install
+        working-directory: ./stellar-payment-platform
+
+      - name: Run test:all
+        run: npm run test:all

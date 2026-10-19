@@ -325,14 +325,22 @@ function Dashboard({
           assembledTransaction.toXDR(),
         );
       } catch (err) {
-        throw new Error(`Wallet signing failed: ${err.message}`, { cause: err });
+        const signingError = new Error(
+          "Transaction signing was cancelled or failed — no transaction was submitted.",
+          { cause: err },
+        );
+        signingError.isSigning = true;
+        throw signingError;
       }
 
       toast.success("Payment submitted.", { id: toastId });
       displayMessage("Payment submitted successfully.", "#059669", "#D1FAE5");
     } catch (error) {
-      toast.error(error.message || "Payment failed.", { id: toastId });
-      displayMessage(error.message || "Payment failed.", "#DC2626", "#FEE2E2");
+      const userMessage = error.isSigning
+        ? "Transaction signing was cancelled or failed — no transaction was submitted."
+        : error.message || "Payment failed.";
+      toast.error(userMessage, { id: toastId });
+      displayMessage(userMessage, "#DC2626", "#FEE2E2");
     } finally {
       setIsProcessing(false);
       setIsSubmitting(false);

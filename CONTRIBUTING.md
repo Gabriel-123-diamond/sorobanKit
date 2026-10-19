@@ -61,22 +61,35 @@ cargo install --locked stellar-cli --features opt
 
 ## Running Tests
 
+### All workspaces at once
+
+Run every test suite in sequence from the repo root with a single command:
+
+```bash
+npm run test:all
+```
+
+This runs the frontend tests, then the backend tests, then the Soroban contract tests (`cargo test`). The command exits non-zero as soon as any suite fails, so a red result always tells you which workspace broke. CI runs this same command in the `test-all` job.
+
 ### Frontend
 
 ```bash
+cd payment-dashboard
 npm test
 ```
 
 ### Backend
 
 ```bash
-cargo test --manifest-path backend/Cargo.toml
+cd stellar-payment-platform
+npm test
 ```
 
 ### Contracts
 
 ```bash
-cargo test --manifest-path contracts/Cargo.toml
+cd payment_router
+cargo test
 ```
 
 ## Pull Request Conventions
