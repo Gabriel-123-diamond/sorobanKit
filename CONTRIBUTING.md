@@ -1,88 +1,93 @@
-# Contributing
+# Contributing to Stellar Tags
 
-Thanks for your interest in contributing! This guide covers local setup, running the test suites, and pull request conventions.
+Thanks for your interest in improving Stellar Tags! This guide walks you through the development workflow, conventions, and review process so you can get productive quickly.
 
 ## Prerequisites
 
-| Tool | Version | Notes |
-| --- | --- | --- |
-| Node.js | >= 18.x (LTS) | Required for the frontend and tooling |
-| npm | >= 9.x | Ships with Node 18+ |
-| Rust | >= 1.74 (stable) | Required for the Soroban contracts |
-| Docker | >= 24.x | Required for the local stack |
-| Docker Compose | >= 2.x | Bundled with modern Docker Desktop |
-| Stellar CLI | >= 21.x | Required to build/deploy contracts |
+- **Node.js** 18+ and **npm** (for the frontend)
+- **Rust** (stable toolchain) and **Cargo** (for the backend)
+- **Git**
 
-Install the Stellar CLI with:
+## Local Setup
 
-```bash
-cargo install --locked stellar-cli --features opt
-```
-
-## Environment Setup
-
-1. Clone the repository and install frontend dependencies:
-
+1. Fork the repository and clone your fork:
    ```bash
-   git clone <repo-url>
-   cd <repo>
+   git clone https://github.com/<your-username>/stellar-tags.git
+   cd stellar-tags
+   ```
+2. Install frontend dependencies:
+   ```bash
    npm install
    ```
-
-2. Copy the example environment file and fill in the values:
-
+3. Build the backend:
    ```bash
-   cp .env.example .env
+   cargo build
    ```
+4. Start the development servers as described in the [README](./README.md).
 
-   Key variables:
+## Branching Strategy
 
-   | Variable | Description |
-   | --- | --- |
-   | `DATABASE_URL` | Postgres connection string used by the backend |
-   | `STELLAR_NETWORK` | `testnet` or `mainnet` |
-   | `HORIZON_URL` | Horizon endpoint for the target network |
-   | `SOROBAN_RPC_URL` | Soroban RPC endpoint |
-   | `CONTRACT_ID` | Deployed contract ID |
-   | `VITE_API_URL` | Backend URL consumed by the frontend |
+- Branch off `main` for all work.
+- Use a descriptive, prefixed branch name:
+  - `feat/<short-description>` for new features
+  - `fix/<short-description>` for bug fixes
+  - `docs/<short-description>` for documentation
+  - `chore/<short-description>` for maintenance
+- Keep branches focused on a single issue or change.
 
-3. Start the local stack with Docker Compose. Profiles let you run only what you need:
+## Commit Message Format
 
-   | Profile | Services | Use case |
-   | --- | --- | --- |
-   | `default` | backend, postgres | Backend development |
-   | `frontend` | frontend, backend, postgres | Full-stack development |
-   | `contracts` | stellar quickstart, postgres | Contract development |
-   | `all` | every service | End-to-end testing |
+We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
-   ```bash
-   docker compose --profile frontend up --build
-   ```
+```
+<type>(<optional scope>): <short summary>
 
-## Running Tests
+<optional body>
 
-### Frontend
+<optional footer>
+```
+
+Common types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
+
+Example:
+
+```
+feat(tags): add pagination to tag listing
+```
+
+## Code Style
+
+- **Frontend (TypeScript/JavaScript):** run ESLint before committing:
+  ```bash
+  npm run lint
+  ```
+- **Backend (Rust):** format and lint with Clippy:
+  ```bash
+  cargo fmt
+  cargo clippy -- -D warnings
+  ```
+- Match the existing structure, naming, and patterns in the codebase.
+
+## Tests
+
+All changes should include or update tests where appropriate. Run the full test suite before opening a PR:
 
 ```bash
+# Frontend
 npm test
+
+# Backend
+cargo test
 ```
 
-### Backend
+## Pull Requests
 
-```bash
-cargo test --manifest-path backend/Cargo.toml
-```
+1. Push your branch to your fork and open a PR against `main`.
+2. Fill out the PR template (`.github/pull_request_template.md`) completely.
+3. Link the issue your PR addresses (e.g. `Closes #123`).
+4. Ensure CI passes and all tests are green.
+5. Respond to review feedback promptly. A maintainer will review and merge once approved.
 
-### Contracts
+## Questions?
 
-```bash
-cargo test --manifest-path contracts/Cargo.toml
-```
-
-## Pull Request Conventions
-
-- Branch from `main` and keep changes focused on a single issue.
-- Use conventional commit messages, e.g. `fix: handle Horizon 404 responses`.
-- Ensure all relevant test suites pass before opening a PR.
-- Reference the issue being addressed in the PR description (`Closes #<issue>`).
-- Keep PRs small and reviewable; avoid unrelated refactors.
+If anything here is unclear, open an issue or start a discussion — we're happy to help.
