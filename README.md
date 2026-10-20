@@ -529,6 +529,7 @@ differently, so participant and amount columns are normalised per type: a
 Streams transaction records from the database as a CSV or NDJSON download for external accounting.
 - **Query Parameters:**
   - `format` (optional) – `csv` (default) or `json`.
+  - `limit` (optional) – positive integer row limit. When omitted, only the server cap applies.
   - `startDate` (optional) – `YYYY-MM-DD` inclusive lower bound on `createdAt`.
   - `endDate` (optional) – `YYYY-MM-DD` inclusive upper bound on `createdAt`.
 - **Headers:** `x-api-key` (required) – must match `ADMIN_API_KEY`.
@@ -538,7 +539,7 @@ Streams transaction records from the database as a CSV or NDJSON download for ex
   - `400 Bad Request`: Invalid date format or `startDate` after `endDate`.
   - `401 Unauthorized`: Missing or invalid API key.
 
-Records are fetched 500 at a time and written directly to the response, so heap use stays bounded regardless of export size. JSON output is newline-delimited (one object per line) for easy streaming parsing.
+Records are fetched at most 500 at a time and written directly to the response. The export stops at the lower of `limit` and `ADMIN_EXPORT_MAX_ROWS` (default `1000000`). Configure the cap as a positive integer no greater than `2147483647`; invalid configuration fails closed with HTTP 500. Invalid limits return HTTP 400. A bounded one-row probe checks for additional matching records before streaming starts, so truncated downloads include `X-Truncated: true`; exports ending exactly at the boundary omit that header. JSON output remains newline-delimited (one object per line).
 
 ### `GET /admin/stats/routing`
 Returns historical payment routing statistics and aggregated volumes, fees, and transaction counts grouped by day, week, or month.
