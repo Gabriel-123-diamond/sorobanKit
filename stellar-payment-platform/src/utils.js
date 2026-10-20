@@ -24,11 +24,17 @@ function normalizeNameTag(value) {
 }
 
 function validateMemo(memoType, memo) {
-  if (!memoType && !memo) return null;
-  if (memoType && !memo) return 'memo is required when memo_type is provided.';
-  if (!memoType && memo) return 'memo_type is required when memo is provided.';
+  const isMemoEmpty = memo === undefined || memo === null || memo === '';
+  const isTypeEmpty = memoType === undefined || memoType === null || memoType === '';
+
+  if (isTypeEmpty && isMemoEmpty) return null;
+  if (!isTypeEmpty && isMemoEmpty) return 'memo is required when memo_type is provided.';
+  if (isTypeEmpty && !isMemoEmpty) return 'memo_type is required when memo is provided.';
   if (!VALID_MEMO_TYPES.includes(memoType)) {
     return `memo_type must be one of: ${VALID_MEMO_TYPES.join(', ')}.`;
+  }
+  if (typeof memo !== 'string') {
+    return 'memo must be a string.';
   }
   if (memoType === 'text' && Buffer.byteLength(memo, 'utf8') > 28) {
     return 'memo of type text must not exceed 28 bytes.';
