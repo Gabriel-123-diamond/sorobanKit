@@ -235,7 +235,9 @@ unless `SEED_ALLOW_REMOTE=1` is set.
 
 The repository includes a [render.yaml](render.yaml) blueprint for the backend API and its PostgreSQL database. When you deploy from Render, import the blueprint or create the service from the repo so `DATABASE_URL` is injected automatically from the managed database.
 
-If you deploy the backend without the blueprint, make sure the web service has a PostgreSQL `DATABASE_URL` secret configured before startup. The container runs Prisma migrations on boot, so the variable must already exist.
+The blueprint sets `MIGRATION_POLICY=strict` for the production service. Under the default `warn` policy a deploy with pending migrations would still bind a port and serve traffic against an out-of-sync schema, which can cause silent data corruption or query failures. With `strict`, the startup migration check logs an error and exits non-zero **before** `app.listen()`, so the deploy fails its health check and Render never routes traffic to an instance whose schema is not fully migrated. Schema drift becomes a deployment blocker instead of a runtime surprise.
+
+If you deploy the backend without the blueprint, make sure the web service has a PostgreSQL `DATABASE_URL` secret configured before startup, and set `MIGRATION_POLICY=strict` in the service environment to get the same protection. The container runs Prisma migrations on boot, so the variable must already exist.
 
 ### Smart contract (Soroban)
 

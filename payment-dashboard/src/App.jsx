@@ -246,7 +246,7 @@ const [activeView, setActiveView] = useState('dashboard')
             // Save the address to state so the UI updates
             persistWalletKey(publicKey);
             setUserPublicKey(publicKey);
-            
+            logger.debug("Wallet connected successfully.");
           } catch (err) {
             logger.error("Wallet connection failed:", err);
             toast.error("Failed to connect wallet.");

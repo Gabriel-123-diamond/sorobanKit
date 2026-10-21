@@ -79,10 +79,14 @@ export const Errors = {
   /**
    * Recipient address is blacklisted.
    */
-  9: {message:"Blacklisted"}
+  9: {message:"Blacklisted"},
+  /**
+   * Payment amount is below the admin-configured minimum transfer amount.
+   */
+  10: {message:"AmountBelowMinimum"}
 }
 
-export type DataKey = {tag: "Admin", values: void} | {tag: "PlatformTreasury", values: void} | {tag: "FeeBps", values: void} | {tag: "FeeCap", values: void} | {tag: "Paused", values: void} | {tag: "MaxAmount", values: void} | {tag: "UserVolume", values: readonly [string]} | {tag: "UserSpending", values: readonly [string]} | {tag: "Blacklist", values: readonly [string]};
+export type DataKey = {tag: "Admin", values: void} | {tag: "PlatformTreasury", values: void} | {tag: "FeeBps", values: void} | {tag: "FeeCap", values: void} | {tag: "Paused", values: void} | {tag: "MaxAmount", values: void} | {tag: "MinAmount", values: void} | {tag: "UserVolume", values: readonly [string]} | {tag: "UserSpending", values: readonly [string]} | {tag: "Blacklist", values: readonly [string]};
 
 
 export interface Payment {
@@ -161,6 +165,12 @@ export interface Client {
    * Updates the fee basis points. Admin-only.
    */
   set_fee_bps: ({new_fee_bps}: {new_fee_bps: i128}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
+   * Construct and simulate a set_min_amount transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Updates the minimum transfer amount accepted by `route_payment`. Admin-only.
+   */
+  set_min_amount: ({amount}: {amount: i128}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
   /**
    * Construct and simulate a route_payment transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
@@ -279,6 +289,7 @@ export class Client extends ContractClient {
         "AAAAAAAAAH9PbmUtdGltZSBzZXR1cDogcmVjb3JkcyB0aGUgYWRtaW4gYW5kIHRoZSBpbml0aWFsIGZlZSBjb25maWd1cmF0aW9uCmluIGluc3RhbmNlIHN0b3JhZ2UuIE11c3QgYmUgY2FsbGVkIGJlZm9yZSBgcm91dGVfcGF5bWVudGAuAAAAAAppbml0aWFsaXplAAAAAAAFAAAAAAAAAAVhZG1pbgAAAAAAABMAAAAAAAAAEXBsYXRmb3JtX3RyZWFzdXJ5AAAAAAAAEwAAAAAAAAAHZmVlX2JwcwAAAAALAAAAAAAAAAdmZWVfY2FwAAAAAAsAAAAAAAAACm1heF9hbW91bnQAAAAAAAsAAAABAAAD6QAAA+0AAAAAAAAAAw==",
         "AAAAAAAAACJBbGlhcyBmb3IgYHNldF9wYXVzZWAuIEFkbWluLW9ubHkuAAAAAAAKc2V0X3BhdXNlZAAAAAAAAQAAAAAAAAAGcGF1c2VkAAAAAAABAAAAAQAAA+kAAAPtAAAAAAAAAAM=",
         "AAAAAAAAAClVcGRhdGVzIHRoZSBmZWUgYmFzaXMgcG9pbnRzLiBBZG1pbi1vbmx5LgAAAAAAAAtzZXRfZmVlX2JwcwAAAAABAAAAAAAAAAtuZXdfZmVlX2JwcwAAAAALAAAAAQAAA+kAAAPtAAAAAAAAAAM=",
+        "AAAAAAAAAEZVcGRhdGVzIHRoZSBtaW5pbXVtIHRyYW5zZmVyIGFtb3VudCBhY2NlcHRlZCBieSBgcm91dGVfcGF5bWVudGAuIEFkbWluLW9ubHkuAAAAAAAOc2V0X21pbl9hbW91bnQAAAAAAAEAAAAAAAAABmFtb3VudAAAAAAACwAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAAEhSb3V0ZXMgYSBwYXltZW50IGZyb20gYSBzZW5kZXIgdG8gYSByZWNpcGllbnQsIGRlZHVjdGluZyBhIHBsYXRmb3JtIGZlZS4AAAANcm91dGVfcGF5bWVudAAAAAAAAAQAAAAAAAAABnNlbmRlcgAAAAAAEwAAAAAAAAAJcmVjaXBpZW50AAAAAAAAEwAAAAAAAAANdG9rZW5fYWRkcmVzcwAAAAAAABMAAAAAAAAABmFtb3VudAAAAAAACwAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAACpSZXR1cm5zIHdoZXRoZXIgYW4gYWRkcmVzcyBpcyBibGFja2xpc3RlZC4AAAAAAA5pc19ibGFja2xpc3RlZAAAAAAAAQAAAAAAAAAHYWRkcmVzcwAAAAATAAAAAQAAAAE=",
         "AAAAAAAAAE9SZWNvdmVycyB0b2tlbnMgYWNjaWRlbnRhbGx5IHNlbnQgZGlyZWN0bHkgdG8gdGhlIGNvbnRyYWN0IGFkZHJlc3MuIEFkbWluLW9ubHkuAAAAAA5yZWNvdmVyX3Rva2VucwAAAAAAAgAAAAAAAAAFdG9rZW4AAAAAAAATAAAAAAAAAAZhbW91bnQAAAAAAAsAAAABAAAD6QAAA+0AAAAAAAAAAw==",
@@ -308,6 +319,7 @@ export class Client extends ContractClient {
         initialize: this.txFromJSON<Result<void>>,
         set_paused: this.txFromJSON<Result<void>>,
         set_fee_bps: this.txFromJSON<Result<void>>,
+        set_min_amount: this.txFromJSON<Result<void>>,
         route_payment: this.txFromJSON<Result<void>>,
         is_blacklisted: this.txFromJSON<boolean>,
         recover_tokens: this.txFromJSON<Result<void>>,

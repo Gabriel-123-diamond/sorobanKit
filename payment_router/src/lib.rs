@@ -176,6 +176,8 @@ pub enum DataKey {
     FeeCap,
     /// Minimum amount accepted by `route_payment` / `route_payments`, if set.
     MinLimit,
+    /// Minimum transfer amount enforced by `route_payment`, if set.
+    MinAmount,
     /// Whether routing is currently paused.
     Paused,
     /// Maximum amount accepted by a single payment.
@@ -236,6 +238,8 @@ pub enum Error {
     TimelockNotFound = 13,
     /// The contract is frozen; all payments and timelock executions are blocked.
     ContractFrozen = 14,
+    /// The payment amount is below the admin-configured minimum transfer amount.
+    AmountBelowMinimum = 15,
 }
 
 /// Soroban contract that routes token payments between addresses while
@@ -404,6 +408,16 @@ impl PaymentRouter {
             .unwrap_or(0);
         if amount < min_limit {
             return Err(Error::LimitExceeded);
+        }
+
+        // Enforce optional admin-configured minimum transfer amount
+        let min_amount: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinAmount)
+            .unwrap_or(0);
+        if amount < min_amount {
+            return Err(Error::AmountBelowMinimum);
         }
 
         // Apply tiered fee discount for high-volume users
@@ -934,6 +948,33 @@ impl PaymentRouter {
         admin.require_auth();
 
         env.storage().instance().set(&DataKey::MinLimit, &min_limit);
+        env.storage().instance().extend_ttl(
+            Self::INSTANCE_LIFETIME_THRESHOLD,
+            Self::INSTANCE_BUMP_AMOUNT,
+        );
+        Ok(())
+    }
+
+    /// Sets the minimum transfer amount enforced by `route_payment`. Admin-only.
+    ///
+    /// # Parameters
+    /// - `amount`: Smallest `amount` that `route_payment` will accept going
+    ///   forward. Payments below this value are rejected with
+    ///   `Error::AmountBelowMinimum`.
+    ///
+    /// # Returns
+    /// `Ok(())` on success, or `Err(Error::NotInitialized)` if the contract
+    /// has no admin set yet.
+    ///
+    /// # Panics
+    /// Panics if the current admin does not authorize the call.
+    pub fn set_min_amount(env: Env, amount: i128) -> Result<(), Error> {
+        let admin = Self::require_admin(&env)?;
+        admin.require_auth();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::MinAmount, &amount);
         env.storage().instance().extend_ttl(
             Self::INSTANCE_LIFETIME_THRESHOLD,
             Self::INSTANCE_BUMP_AMOUNT,
@@ -2635,6 +2676,89 @@ mod test {
         // Trying to withdraw again should fail with NoRefundAvailable
         let res = client.try_withdraw_refund(&user, &token_address, &100);
         assert_eq!(res.unwrap_err().unwrap(), Error::NoRefundAvailable);
+    }
+
+    // ── Minimum transfer amount tests ────────────────────────────────────────
+
+    #[test]
+    fn test_route_payment_below_min_amount_rejected() {
+        let (env, client, _) = setup_env();
+
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        let (token_address, _token_client, sac) = setup_token(&env);
+        sac.mint(&sender, &10_000);
+
+        client.initialize(&admin, &treasury, &100, &50, &PaymentRouter::MAX_AMOUNT);
+        client.set_min_amount(&100);
+
+        // Amount below the minimum must be rejected.
+        let res = client.try_route_payment(&sender, &recipient, &token_address, &99);
+        assert_eq!(res.unwrap_err().unwrap(), Error::AmountBelowMinimum);
+
+        // A single stroop must also be rejected.
+        let res = client.try_route_payment(&sender, &recipient, &token_address, &1);
+        assert_eq!(res.unwrap_err().unwrap(), Error::AmountBelowMinimum);
+    }
+
+    #[test]
+    fn test_route_payment_at_or_above_min_amount_succeeds() {
+        let (env, client, _) = setup_env();
+
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        let (token_address, token_client, sac) = setup_token(&env);
+        sac.mint(&sender, &10_000);
+
+        client.initialize(&admin, &treasury, &100, &50, &PaymentRouter::MAX_AMOUNT);
+        client.set_min_amount(&100);
+
+        // Exactly at the minimum succeeds.
+        client.route_payment(&sender, &recipient, &token_address, &100);
+        assert_eq!(token_client.balance(&recipient), 99);
+
+        // Above the minimum succeeds.
+        client.route_payment(&sender, &recipient, &token_address, &1_000);
+        assert_eq!(token_client.balance(&recipient), 99 + 990);
+    }
+
+    #[test]
+    fn test_set_min_amount_requires_admin_auth() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let contract_id = env.register_contract(None, PaymentRouter);
+        let client = PaymentRouterClient::new(&env, &contract_id);
+
+        client.initialize(&admin, &treasury, &100, &1000, &PaymentRouter::MAX_AMOUNT);
+
+        client.set_min_amount(&250);
+
+        // The invocation must have recorded an authorization for the admin,
+        // proving set_min_amount gates on the admin address.
+        let auths = env.auths();
+        let admin_auth_present = auths.iter().any(|(addr, _)| *addr == admin);
+        assert!(
+            admin_auth_present,
+            "set_min_amount must require the admin address to authorize"
+        );
+
+        // The stored value must be readable back through routing behaviour.
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let (token_address, _token_client, sac) = setup_token(&env);
+        sac.mint(&sender, &10_000);
+
+        let res = client.try_route_payment(&sender, &recipient, &token_address, &249);
+        assert_eq!(res.unwrap_err().unwrap(), Error::AmountBelowMinimum);
     }
 
     #[test]
