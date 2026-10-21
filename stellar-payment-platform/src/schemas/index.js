@@ -211,6 +211,19 @@ const exportQuerySchema = z
   })
   .loose();
 
+/**
+ * GET /admin/audit-logs query.
+ *
+ * - `limit` integer 1–100 (default 50). Values above 100 are clamped to 100
+ *   rather than rejected, matching the behaviour of the other paginated
+ *   endpoints in this codebase.
+ */
+const adminAuditLogsQuerySchema = z
+  .object({
+    limit: clampedInt(50, 1, 100),
+  })
+  .loose();
+
 /** POST /admin/block */
 const adminBlockBodySchema = z
   .object({
@@ -369,6 +382,7 @@ module.exports = {
   verifyEmailBodySchema,
   verifyEmailConfirmBodySchema,
   adminBlockBodySchema,
+  adminAuditLogsQuerySchema,
   exportQuerySchema,
   adminExportQuerySchema,
   adminRoutingStatsQuerySchema,
