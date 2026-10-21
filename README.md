@@ -233,6 +233,29 @@ cd payment_router
 cargo build
 ```
 
+#### WASM hash verification
+
+`payment_router/wasm.sha256` is a committed manifest holding the expected
+SHA-256 of the compiled contract WASM. It is updated automatically after a
+clean build, so an intentional release only needs the regenerated file
+committed alongside the contract change.
+
+Before uploading the WASM, `scripts/deploy.js` recomputes the SHA-256 of the
+compiled artifact and compares it against the manifest. If they differ, the
+deployment aborts with a clear error, which prevents a corrupted or tampered
+WASM from reaching mainnet. Pass `--skip-hash-check` to bypass the check — a
+warning is logged when you do:
+
+```bash
+./scripts/deploy_contract.sh deploy --network testnet --skip-hash-check
+```
+
+To run the check on its own, without deploying:
+
+```bash
+npm run deploy:verify-hash
+```
+
 ### Contract TypeScript bindings
 
 The TypeScript client for the `payment_router` contract lives in
