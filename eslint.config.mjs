@@ -17,6 +17,15 @@ export default [
     }
   },
   {
+    // Backend source must use the Winston logger instead of console.log so
+    // production logs stay structured. console.error is allowed for top-level
+    // catch blocks where the logger may not be available.
+    files: ["stellar-payment-platform/src/**"],
+    rules: {
+      "no-console": ["error", { allow: ["error"] }]
+    }
+  },
+  {
     files: ["**/*.test.js"],
     languageOptions: {
       globals: {
