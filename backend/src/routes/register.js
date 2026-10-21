@@ -2,11 +2,12 @@ const express = require('express');
 const { StrKey } = require('@stellar/stellar-sdk');
 const { PrismaClient } = require('@prisma/client');
 const { ApiError } = require('../errors');
+const { rejectNestedObjects } = require('../middleware/rejectNestedObjects');
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
-router.post('/register', async (req, res, next) => {
+router.post('/register', rejectNestedObjects, async (req, res, next) => {
   try {
     const { address, memo } = req.body || {};
 
@@ -20,14 +21,15 @@ router.post('/register', async (req, res, next) => {
 
     const existing = await prisma.account.findUnique({ where: { address } });
     if (existing) {
-      throw new ApiError('ALREADY_EXISTS', 'address is already registered');
+      // Idempotent re-registration: same username+address pair already exists.
+      return res.status(200).json({ ok: true, already_registered: true });
     }
 
     const account = await prisma.account.create({
       data: { address, memo: memo || null },
     });
 
-    res.status(201).json({ address: account.address, memo: account.memo });
+    res.status(201).json({ ok: true, already_registered: false, address: account.address, memo: account.memo });
   } catch (err) {
     next(err);
   }

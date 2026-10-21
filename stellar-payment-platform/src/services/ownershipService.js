@@ -26,8 +26,206 @@ const crypto = require('crypto');
 const { Keypair, StrKey } = require('@stellar/stellar-sdk');
 const { prisma } = require('../../prismaClient');
 const { poolGet } = require('../db');
-const { verifyMultiSignerThreshold } = require('../multisigner-verifier');
+const { verifyMultiSignerThreshold, fetchAccountSigners } = require('../multisigner-verifier');
 const { normalizeNameTag, shouldFallbackToLocalRegistry } = require('../utils');
+
+const DEFAULT_SIGNER_CACHE_TTL_MS = 60 * 1000; // 60 seconds
+const SIGNER_CACHE_TTL_MS =
+  Number(process.env.SIGNER_CACHE_TTL_MS) > 0
+    ? Number(process.env.SIGNER_CACHE_TTL_MS)
+    : DEFAULT_SIGNER_CACHE_TTL_MS;
+const SIGNER_CACHE_KEY_PREFIX = 'signers:';
+
+// In-memory TTL cache: key -> { value, expiresAt }
+const _signerMemoryCache = new Map();
+let _signerRedisClient = null;
+
+const getEffectiveSignerCacheTtlMs = (overrideTtlMs) => {
+  if (typeof overrideTtlMs === 'number' && overrideTtlMs > 0) {
+    return overrideTtlMs;
+  }
+  const envTtl = Number(process.env.SIGNER_CACHE_TTL_MS);
+  return Number.isFinite(envTtl) && envTtl > 0 ? envTtl : SIGNER_CACHE_TTL_MS;
+};
+
+const setSignerRedisClient = (redisClient) => {
+  _signerRedisClient = redisClient || null;
+};
+
+const clearSignerCache = () => {
+  _signerMemoryCache.clear();
+};
+
+const readMemoryCache = (key) => {
+  const entry = _signerMemoryCache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() >= entry.expiresAt) {
+    _signerMemoryCache.delete(key);
+    return undefined;
+  }
+  return entry.value;
+};
+
+const writeMemoryCache = (key, value, ttlMs) => {
+  _signerMemoryCache.set(key, {
+    value,
+    expiresAt: Date.now() + ttlMs,
+  });
+};
+
+const readRedisCache = async (redisClient, key, ttlMs) => {
+  if (!redisClient || redisClient.isReady === false || typeof redisClient.get !== 'function') {
+    return undefined;
+  }
+  try {
+    const raw = await redisClient.get(key);
+    if (!raw) return undefined;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    writeMemoryCache(key, parsed, ttlMs);
+    return parsed;
+  } catch {
+    // Redis unavailability falls through to Horizon (no 503)
+    return undefined;
+  }
+};
+
+const writeRedisCache = async (redisClient, key, value, ttlMs) => {
+  if (!redisClient || redisClient.isReady === false) {
+    return;
+  }
+  const serialized = JSON.stringify(value);
+  try {
+    if (typeof redisClient.pSetEx === 'function') {
+      await redisClient.pSetEx(key, ttlMs, serialized);
+    } else if (typeof redisClient.set === 'function' && redisClient.set.length >= 3) {
+      await redisClient.set(key, serialized, { PX: ttlMs });
+    } else if (typeof redisClient.setEx === 'function') {
+      await redisClient.setEx(key, Math.max(1, Math.ceil(ttlMs / 1000)), serialized);
+    } else if (typeof redisClient.set === 'function') {
+      await redisClient.set(key, serialized, { PX: ttlMs });
+    }
+  } catch {
+    // Ignore Redis write errors; Horizon verification already succeeded
+  }
+};
+
+const evaluateCachedAccountSigners = (accountData, signerKeys, operationType = 'management') => {
+  const signers = Array.isArray(accountData) ? accountData : accountData.signers || [];
+  const thresholds = accountData.thresholds || {
+    low_threshold: 1,
+    med_threshold: 1,
+    high_threshold: 1,
+  };
+  const requiredThreshold =
+    operationType === 'high'
+      ? thresholds.high_threshold
+      : operationType === 'management'
+        ? thresholds.med_threshold
+        : thresholds.low_threshold;
+
+  const signerMap = new Map();
+  for (const s of signers) {
+    signerMap.set(s.key, s.weight);
+  }
+
+  const uniqueKeys = [...new Set(signerKeys)];
+  let totalWeight = 0;
+  for (const key of uniqueKeys) {
+    const weight = signerMap.get(key) || 0;
+    if (weight > 0) totalWeight += weight;
+  }
+
+  const meetsThreshold = totalWeight >= requiredThreshold;
+  return {
+    success: meetsThreshold,
+    totalWeight,
+    requiredThreshold,
+    errorMessage: meetsThreshold
+      ? null
+      : `Insufficient signing weight. Required: ${requiredThreshold}, Provided: ${totalWeight}`,
+  };
+};
+
+/**
+ * Retrieves the Horizon signer list for `address`, checking the in-memory and
+ * Redis cache (`signers:<address>`) first and caching fresh results for
+ * `SIGNER_CACHE_TTL_MS` milliseconds.
+ */
+const getCachedAccountSigners = async (
+  address,
+  { redisClient = _signerRedisClient, fetchFn = fetchAccountSigners, ttlMs } = {},
+) => {
+  const effectiveTtlMs = getEffectiveSignerCacheTtlMs(ttlMs);
+  const cacheKey = `${SIGNER_CACHE_KEY_PREFIX}${address}`;
+
+  const memHit = readMemoryCache(cacheKey);
+  if (memHit !== undefined) return memHit;
+
+  const redisHit = await readRedisCache(redisClient, cacheKey, effectiveTtlMs);
+  if (redisHit !== undefined) return redisHit;
+
+  if (typeof fetchFn !== 'function') {
+    throw new Error('No signer fetcher available');
+  }
+
+  const accountDetails = await fetchFn(address);
+  if (accountDetails) {
+    writeMemoryCache(cacheKey, accountDetails, effectiveTtlMs);
+    await writeRedisCache(redisClient, cacheKey, accountDetails, effectiveTtlMs);
+  }
+  return accountDetails;
+};
+
+const verifyOwnershipMultiSig = async (
+  address,
+  signerKeys,
+  { operationType = 'management', redisClient = _signerRedisClient, ttlMs } = {},
+) => {
+  const effectiveTtlMs = getEffectiveSignerCacheTtlMs(ttlMs);
+  const cacheKey = `${SIGNER_CACHE_KEY_PREFIX}${address}`;
+  const normalizedKeys = [...new Set(signerKeys)].sort().join(',');
+
+  // 1. Check in-memory cache
+  let cached = readMemoryCache(cacheKey);
+
+  // 2. Check Redis cache if not in memory
+  if (cached === undefined) {
+    cached = await readRedisCache(redisClient, cacheKey, effectiveTtlMs);
+  }
+
+  if (cached !== undefined) {
+    if (cached && (Array.isArray(cached) || Array.isArray(cached.signers))) {
+      return evaluateCachedAccountSigners(cached, signerKeys, operationType);
+    }
+    if (cached && cached.__cachedVerification && cached.keys === normalizedKeys) {
+      return cached.result;
+    }
+  }
+
+  const verificationResult = await verifyMultiSignerThreshold(
+    address,
+    signerKeys,
+    { operationType },
+  );
+
+  if (verificationResult && verificationResult.success) {
+    const cachePayload = Array.isArray(verificationResult.signers)
+      ? {
+          accountId: address,
+          signers: verificationResult.signers,
+          thresholds: verificationResult.thresholds,
+        }
+      : {
+          __cachedVerification: true,
+          keys: normalizedKeys,
+          result: verificationResult,
+        };
+    writeMemoryCache(cacheKey, cachePayload, effectiveTtlMs);
+    await writeRedisCache(redisClient, cacheKey, cachePayload, effectiveTtlMs);
+  }
+
+  return verificationResult;
+};
 
 const httpError = (message, statusCode) => {
   const error = new Error(message);
@@ -113,6 +311,8 @@ const authenticateUsernameOwner = async ({
   signature: rawSignature,
   signerAddress: rawSignerAddress,
   operation = 'webhook',
+  redisClient,
+  ttlMs,
 }) => {
   const username = typeof rawUsername === 'string' ? rawUsername.trim() : '';
   const signerAddress =
@@ -150,10 +350,10 @@ const authenticateUsernameOwner = async ({
   // (e.g. 2-of-3).  All keys are forwarded to verifyMultiSignerThreshold
   // so the module can compute the combined signing weight.
   if (isSignerAddressArray(signature)) {
-    const verificationResult = await verifyMultiSignerThreshold(
+    const verificationResult = await verifyOwnershipMultiSig(
       userRecord.address,
       signature,
-      { operationType: 'management' },
+      { operationType: 'management', redisClient, ttlMs },
     );
     if (!verificationResult.success) {
       throw httpError(verificationResult.errorMessage || 'Signature verification failed', 401);
@@ -165,10 +365,10 @@ const authenticateUsernameOwner = async ({
   // Caller provides one co-signer public key.  The verifier will check
   // whether that key's weight alone meets the account's threshold.
   if (isSignerAddress(signature) && !signerAddress) {
-    const verificationResult = await verifyMultiSignerThreshold(
+    const verificationResult = await verifyOwnershipMultiSig(
       userRecord.address,
       [signature],
-      { operationType: 'management' },
+      { operationType: 'management', redisClient, ttlMs },
     );
     if (!verificationResult.success) {
       throw httpError(verificationResult.errorMessage || 'Signature verification failed', 401);
@@ -192,4 +392,10 @@ const authenticateUsernameOwner = async ({
 module.exports = {
   authenticateUsernameOwner,
   verifyFreighterSignedMessage,
+  getCachedAccountSigners,
+  setSignerRedisClient,
+  clearSignerCache,
+  SIGNER_CACHE_TTL_MS,
+  SIGNER_CACHE_KEY_PREFIX,
+  _signerMemoryCache,
 };

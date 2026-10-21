@@ -18,6 +18,10 @@ services:
         value: production
       - key: LOG_DIR
         value: /app/logs
+      # Use strict migration policy in production: if the schema is not fully
+      # migrated, the service exits before binding a port, making pending
+      # migrations a deployment blocker (failing the health check) rather than
+      # serving traffic with an out-of-sync schema.
       - key: MIGRATION_POLICY
         value: strict
       - key: DATABASE_URL

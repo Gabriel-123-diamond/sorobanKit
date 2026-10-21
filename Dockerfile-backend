@@ -26,7 +26,18 @@ COPY stellar-payment-platform/prisma ./prisma
 RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
 	npm install --no-audit --no-fund
 
-COPY stellar-payment-platform/ .
+# Selective copies instead of `COPY . .`: tests, coverage and dev-only files
+# are excluded by stellar-payment-platform/.dockerignore and never enter the
+# build context, so they cannot leak into the production image.
+COPY stellar-payment-platform/server.js \
+	stellar-payment-platform/horizonListener.js \
+	stellar-payment-platform/prismaClient.js \
+	stellar-payment-platform/mount-versioning.js \
+	stellar-payment-platform/startup.sh \
+	stellar-payment-platform/package.json ./
+COPY stellar-payment-platform/src ./src
+COPY stellar-payment-platform/middleware ./middleware
+COPY stellar-payment-platform/config ./config
 RUN npx prisma generate
 
 # Slim the tree IN THE BUILDER so the runtime stage never sees the weight:
@@ -55,7 +66,11 @@ ENV NODE_ENV=production
 
 # Create a dedicated unprivileged `node` group/user and run the server as it.
 # /app stays writable for the logs/data dirs the app creates at runtime.
-RUN addgroup --system node && adduser --system --ingroup node node \
+# postgresql-client provides `pg_isready`, which startup.sh polls to wait for
+# the database before running migrations. Only the client is installed (no
+# server), and the apk cache is discarded to keep the layer slim.
+RUN apk add --no-cache postgresql-client \
+	&& addgroup --system node && adduser --system --ingroup node node \
 	&& mkdir -p /app/logs /app/data \
 	&& chown node:node /app /app/logs /app/data
 

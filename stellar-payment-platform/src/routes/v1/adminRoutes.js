@@ -21,6 +21,7 @@ const { asyncHandler } = require('../../middleware/asyncHandler');
 const { validateSchema } = require('../../middleware/validateSchema');
 const {
   adminRoutingStatsQuerySchema,
+  adminAuditLogsQuerySchema,
 } = require('../../schemas');
 const { getRoutingStats } = require('../../services/statsService');
 const { auditLogMiddleware } = require('../../middleware/auditLog');
@@ -194,9 +195,10 @@ router.post('/admin/block', adminAuth, asyncHandler(async (req, res, next) => {
 router.get(
     '/admin/audit-logs',
     adminAuth,
+    validateSchema({ query: adminAuditLogsQuerySchema }),
     asyncHandler(async (req, res) => {
       const { prisma } = getPrisma();
-      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+      const limit = req.query.limit;
       const logs = await prisma.auditLog.findMany({
         take: limit,
         orderBy: { createdAt: 'desc' },

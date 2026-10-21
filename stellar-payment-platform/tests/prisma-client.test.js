@@ -17,6 +17,10 @@ delete process.env.DATABASE_URL;
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 process.env.NODE_ENV = 'test';
 
+// Capture pool-related env vars so they can be restored after the suite.
+const ORIGINAL_DB_POOL_SIZE = process.env.DB_POOL_SIZE;
+const ORIGINAL_DB_POOL_TIMEOUT = process.env.DB_POOL_TIMEOUT;
+
 const { prisma, withTransaction, isPrismaConnectionError } = require('../prismaClient');
 
 afterAll(() => {
@@ -24,6 +28,74 @@ afterAll(() => {
   else process.env.DATABASE_URL = ORIGINAL_DATABASE_URL;
   if (ORIGINAL_NODE_ENV === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+  if (ORIGINAL_DB_POOL_SIZE === undefined) delete process.env.DB_POOL_SIZE;
+  else process.env.DB_POOL_SIZE = ORIGINAL_DB_POOL_SIZE;
+  if (ORIGINAL_DB_POOL_TIMEOUT === undefined) delete process.env.DB_POOL_TIMEOUT;
+  else process.env.DB_POOL_TIMEOUT = ORIGINAL_DB_POOL_TIMEOUT;
+});
+
+/**
+ * Load a fresh copy of the module with the given env vars applied, so the
+ * datasource URL construction runs against the desired configuration.
+ */
+function loadWithEnv(env) {
+  jest.resetModules();
+  const saved = {
+    DATABASE_URL: process.env.DATABASE_URL,
+    DB_POOL_SIZE: process.env.DB_POOL_SIZE,
+    DB_POOL_TIMEOUT: process.env.DB_POOL_TIMEOUT,
+  };
+  try {
+    for (const [key, value] of Object.entries(env)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    return require('../prismaClient');
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+describe('prismaClient connection pool configuration', () => {
+  const BASE_URL = 'postgresql://user:pass@localhost:5432/db';
+
+  it('applies DB_POOL_SIZE and DB_POOL_TIMEOUT to the datasource URL', () => {
+    const mod = loadWithEnv({
+      DATABASE_URL: BASE_URL,
+      DB_POOL_SIZE: '5',
+      DB_POOL_TIMEOUT: '15',
+    });
+    const url = mod.resolveDatasourceUrl ? mod.resolveDatasourceUrl() : mod.datasourceUrl;
+    expect(url).toContain('connection_limit=5');
+    expect(url).toContain('pool_timeout=15');
+  });
+
+  it('falls back to default pool size (10) and timeout (30) when unset', () => {
+    const mod = loadWithEnv({
+      DATABASE_URL: BASE_URL,
+      DB_POOL_SIZE: undefined,
+      DB_POOL_TIMEOUT: undefined,
+    });
+    const url = mod.resolveDatasourceUrl ? mod.resolveDatasourceUrl() : mod.datasourceUrl;
+    expect(url).toContain('connection_limit=10');
+    expect(url).toContain('pool_timeout=30');
+  });
+
+  it('does not duplicate pool parameters already present in DATABASE_URL', () => {
+    const mod = loadWithEnv({
+      DATABASE_URL: `${BASE_URL}?connection_limit=3&pool_timeout=7`,
+      DB_POOL_SIZE: '5',
+      DB_POOL_TIMEOUT: '15',
+    });
+    const url = mod.resolveDatasourceUrl ? mod.resolveDatasourceUrl() : mod.datasourceUrl;
+    expect(url.match(/connection_limit=/g)).toHaveLength(1);
+    expect(url.match(/pool_timeout=/g)).toHaveLength(1);
+    expect(url).toContain('connection_limit=3');
+    expect(url).toContain('pool_timeout=7');
+  });
 });
 
 describe('prismaClient fallback mock', () => {

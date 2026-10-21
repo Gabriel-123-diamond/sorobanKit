@@ -1,88 +1,112 @@
-# Contributing
+# Contributing to Stellar Tags
 
-Thanks for your interest in contributing! This guide covers local setup, running the test suites, and pull request conventions.
+Thanks for your interest in improving Stellar Tags! This guide walks you through the development workflow, conventions, and review process so you can get productive quickly.
+
+> **Security:** Please do not report security vulnerabilities through public issues or pull requests. See [SECURITY.md](SECURITY.md) for our responsible disclosure process.
 
 ## Prerequisites
 
-| Tool | Version | Notes |
-| --- | --- | --- |
-| Node.js | >= 18.x (LTS) | Required for the frontend and tooling |
-| npm | >= 9.x | Ships with Node 18+ |
-| Rust | >= 1.74 (stable) | Required for the Soroban contracts |
-| Docker | >= 24.x | Required for the local stack |
-| Docker Compose | >= 2.x | Bundled with modern Docker Desktop |
-| Stellar CLI | >= 21.x | Required to build/deploy contracts |
+- **Node.js** 18+ and **npm** (for the frontend)
+- **Rust** (stable toolchain) and **Cargo** (for the backend)
+- **Git**
 
-Install the Stellar CLI with:
+## Local Setup
 
-```bash
-cargo install --locked stellar-cli --features opt
-```
-
-## Environment Setup
-
-1. Clone the repository and install frontend dependencies:
-
+1. Fork the repository and clone your fork:
    ```bash
-   git clone <repo-url>
-   cd <repo>
+   git clone https://github.com/<your-username>/stellar-tags.git
+   cd stellar-tags
+   ```
+2. Install frontend dependencies:
+   ```bash
    npm install
    ```
-
-2. Copy the example environment file and fill in the values:
-
+3. Build the backend:
    ```bash
-   cp .env.example .env
+   cargo build
    ```
+4. Start the development servers as described in the [README](./README.md).
 
-   Key variables:
+## Branching Strategy
 
-   | Variable | Description |
-   | --- | --- |
-   | `DATABASE_URL` | Postgres connection string used by the backend |
-   | `STELLAR_NETWORK` | `testnet` or `mainnet` |
-   | `HORIZON_URL` | Horizon endpoint for the target network |
-   | `SOROBAN_RPC_URL` | Soroban RPC endpoint |
-   | `CONTRACT_ID` | Deployed contract ID |
-   | `VITE_API_URL` | Backend URL consumed by the frontend |
+- Branch off `main` for all work.
+- Use a descriptive, prefixed branch name:
+  - `feat/<short-description>` for new features
+  - `fix/<short-description>` for bug fixes
+  - `docs/<short-description>` for documentation
+  - `chore/<short-description>` for maintenance
+- Keep branches focused on a single issue or change.
 
-3. Start the local stack with Docker Compose. Profiles let you run only what you need:
+## Commit Message Format
 
-   | Profile | Services | Use case |
-   | --- | --- | --- |
-   | `default` | backend, postgres | Backend development |
-   | `frontend` | frontend, backend, postgres | Full-stack development |
-   | `contracts` | stellar quickstart, postgres | Contract development |
-   | `all` | every service | End-to-end testing |
+We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
-   ```bash
-   docker compose --profile frontend up --build
-   ```
+```
+<type>(<optional scope>): <short summary>
 
-## Running Tests
+### All workspaces at once
+
+Run every test suite in sequence from the repo root with a single command:
+
+```bash
+npm run test:all
+```
+
+This runs the frontend tests, then the backend tests, then the Soroban contract tests (`cargo test`). The command exits non-zero as soon as any suite fails, so a red result always tells you which workspace broke. CI runs this same command in the `test-all` job.
 
 ### Frontend
 
 ```bash
+cd payment-dashboard
 npm test
 ```
 
-### Backend
+Common types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
 
 ```bash
-cargo test --manifest-path backend/Cargo.toml
+cd stellar-payment-platform
+npm test
 ```
 
-### Contracts
+## Code Style
+
+- **Frontend (TypeScript/JavaScript):** run ESLint before committing:
+  ```bash
+  npm run lint
+  ```
+- **Backend (Rust):** format and lint with Clippy:
+  ```bash
+  cargo fmt
+  cargo clippy -- -D warnings
+  ```
+- Match the existing structure, naming, and patterns in the codebase.
+
+## Pre-commit Hook
+
+This repository uses [Husky](https://typicode.github.io/husky/) to run checks before each commit (see `.husky/pre-commit`). The hook runs:
+
+1. **Lint** — `npm run lint` (ESLint).
+2. **Unit tests** — `npm run test:unit`, which runs Jest against `tests/unit` only (`--testPathPattern=tests/unit --passWithNoTests`).
+
+The hook is intentionally limited to a fast subset of tests so it completes in under 30 seconds on a modern developer machine. Integration and e2e tests, as well as Rust tests, are **not** run in the hook — they are covered by CI. A failing unit test will block the commit; fix the failure (or, if you must, bypass with `git commit --no-verify`, though CI will still enforce the checks).
+
+## Tests
+
+All changes should include or update tests where appropriate. Run the full test suite before opening a PR:
 
 ```bash
-cargo test --manifest-path contracts/Cargo.toml
+cd payment_router
+cargo test
 ```
 
-## Pull Request Conventions
+## Pull Requests
 
-- Branch from `main` and keep changes focused on a single issue.
-- Use conventional commit messages, e.g. `fix: handle Horizon 404 responses`.
-- Ensure all relevant test suites pass before opening a PR.
-- Reference the issue being addressed in the PR description (`Closes #<issue>`).
-- Keep PRs small and reviewable; avoid unrelated refactors.
+1. Push your branch to your fork and open a PR against `main`.
+2. Fill out the PR template (`.github/pull_request_template.md`) completely.
+3. Link the issue your PR addresses (e.g. `Closes #123`).
+4. Ensure CI passes and all tests are green.
+5. Respond to review feedback promptly. A maintainer will review and merge once approved.
+
+## Questions?
+
+If anything here is unclear, open an issue or start a discussion — we're happy to help.

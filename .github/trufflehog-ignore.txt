@@ -23,3 +23,8 @@ stellar-payment-platform/scripts/seed\.js
 # Documentation examples (webhook-signature-verification.md contains
 # placeholder HMAC keys used in code samples)
 docs/.*\.md
+
+# Example environment templates and local dev defaults (non-secret placeholders)
+.*\.env\.example
+payment-dashboard/\.env
+examples/.*

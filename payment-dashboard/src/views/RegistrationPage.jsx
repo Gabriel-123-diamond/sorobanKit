@@ -11,6 +11,7 @@ function RegistrationPage({
 }) {
   const [username, setUsername] = useState("");
   const [usernameError, setUsernameError] = useState("");
+  const [addressError, setAddressError] = useState("");
   const [memoType, setMemoType] = useState("");
   const [memo, setMemo] = useState("");
   const [memoError, setMemoError] = useState("");
@@ -176,12 +177,15 @@ function RegistrationPage({
       // Check if it's the specific LOBSTR unsupported error
       if (err.message && err.message.includes("signMessage")) {
         setStatusMessage(
-          "LOBSTR does not support registration signatures. Please click 'Back to dashboard' to skip this step, or connect with Freighter.", 
+          "LOBSTR does not support registration signatures. Please click 'Back to dashboard' to skip this step, or connect with Freighter.",
           "error"
         );
       } else {
-        // Handle all other normal errors
-        setStatusMessage(err.message || "Signature request cancelled.", "error");
+        // Signing was cancelled or rejected — nothing was submitted to the network
+        setStatusMessage(
+          "Transaction signing was cancelled or failed — no transaction was submitted.",
+          "error"
+        );
       }
       setIsSubmitting(false);
       return;
@@ -206,13 +210,42 @@ function RegistrationPage({
         .then(async (response) => {
           const data = await response.json().catch(() => null);
           if (!response.ok) {
+            if (response.status === 422) {
+              const fieldErrors = { username: "", address: "" };
+              const errors = Array.isArray(data?.errors) ? data.errors : [];
+              errors.forEach((entry) => {
+                const field = entry?.field || entry?.param;
+                const message = entry?.message || entry?.msg || "Invalid value.";
+                if (field === "username" || field === "address") {
+                  fieldErrors[field] = fieldErrors[field]
+                    ? `${fieldErrors[field]} ${message}`
+                    : message;
+                }
+              });
+              if (fieldErrors.username || fieldErrors.address) {
+                setUsernameError(fieldErrors.username);
+                setAddressError(fieldErrors.address);
+                setStatusMessage("", "neutral");
+                return null;
+              }
+            }
+
+            if (response.status === 409) {
+              setUsernameError("Username already taken");
+              setStatusMessage("", "neutral");
+              return null;
+            }
+
             throw new Error(
               apiErrorMessage(data, "Registration failed."),
             );
           }
           return data;
         })
-        .then(() => {
+        .then((data) => {
+          if (data === null) {
+            return;
+          }
           setStatusMessage("Username reserved and saved.", "success");
           
           setTimeout(() => {
@@ -282,6 +315,17 @@ function RegistrationPage({
           </label>
 
           <label className="field">
+            <span>Address</span>
+            <input
+              type="text"
+              value={userPublicKey || ""}
+              readOnly
+              placeholder="Connect a wallet"
+            />
+            {addressError && <small className="field-error">{addressError}</small>}
+          </label>
+
+          <label className="field">
             <span>Memo type (optional)</span>
             <select
               value={memoType}
@@ -321,7 +365,9 @@ function RegistrationPage({
             {isSubmitting ? "Registering..." : "Register username"}
           </button>
 
-          <p className={`status status-${status.tone}`}>{status.text}</p>
+          {status.text && (
+            <p className={`status status-${status.tone}`}>{status.text}</p>
+          )}
 
           <button type="button" className="link-button" onClick={onBack}>
             Back to dashboard

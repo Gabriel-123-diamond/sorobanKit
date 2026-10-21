@@ -37,9 +37,41 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
+      # Dependency caching strategy:
+      # - Caches installed node_modules plus the npm download cache (~/.npm).
+      # - The cache key is derived from hashFiles('**/package-lock.json'), so any
+      #   change to a lockfile produces a new key and invalidates the cache.
+      # - restore-keys provides a fallback to the most recent cache for this OS
+      #   when the exact key misses, so partial hits still save download time.
+      - name: Cache backend dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            stellar-payment-platform/node_modules
+            ~/.npm
+          key: ${{ runner.os }}-node-backend-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-backend-
+
       - name: Install backend dependencies
         working-directory: stellar-payment-platform
         run: npm install --legacy-peer-deps
+
+      # Apply migrations and seed the database so API key tests have data.
+      # The seed is idempotent: re-running it yields the same active API key.
+      - name: Run migrations and seed database
+        working-directory: stellar-payment-platform
+        run: |
+          npx prisma migrate deploy
+          npm run db:seed | tee seed-output.log
+          ACTIVE_KEY=$(grep -oE 'sk_[A-Za-z0-9]+' seed-output.log | head -n 1)
+          if [ -z "$ACTIVE_KEY" ]; then
+            echo "Failed to extract active API key from seed output" >&2
+            exit 1
+          fi
+          echo "TEST_ADMIN_API_KEY=$ACTIVE_KEY" >> "$GITHUB_ENV"
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/stellar_tags_test?schema=public
 
       # Coverage thresholds live in package.json; failing below them fails the PR.
       # E2E isolation: suites in tests/e2e prefix every record with a per-run
@@ -49,6 +81,7 @@ jobs:
         run: npm run test:coverage --prefix stellar-payment-platform
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/stellar_tags_test?schema=public
+          TEST_ADMIN_API_KEY: ${{ env.TEST_ADMIN_API_KEY }}
 
       - name: Run memory leak detection tests (#511)
         working-directory: stellar-payment-platform

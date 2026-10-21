@@ -17,6 +17,28 @@ export default [
     }
   },
   {
+    // Security: API key hash comparisons must be constant-time to avoid
+    // timing side channels. Use crypto.timingSafeEqual instead of === / !==
+    // when comparing API key hashes.
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "BinaryExpression[operator=/^[!=]==$/] > Identifier[name=/keyHash|apiKeyHash|hash/i]",
+          message:
+            "API key hash comparisons must use crypto.timingSafeEqual to avoid timing attacks."
+        },
+        {
+          selector:
+            "BinaryExpression[operator=/^[!=]==$/] > MemberExpression > Identifier[name=/keyHash|apiKeyHash|hash/i]",
+          message:
+            "API key hash comparisons must use crypto.timingSafeEqual to avoid timing attacks."
+        }
+      ]
+    }
+  },
+  {
     files: ["**/*.test.js"],
     languageOptions: {
       globals: {

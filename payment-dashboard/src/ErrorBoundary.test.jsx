@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import ErrorBoundary from './ErrorBoundary.jsx'
@@ -33,5 +34,18 @@ describe('ErrorBoundary', () => {
     )
 
     expect(screen.getByText('All good')).toBeDefined()
+  })
+
+  it('renders the fallback UI when a child throws during render', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    render(
+      <ErrorBoundary>
+        <Bomb />
+      </ErrorBoundary>,
+    )
+
+    expect(screen.getByRole('alert')).toBeDefined()
+    expect(screen.getByText(/something went wrong/i)).toBeDefined()
   })
 })
