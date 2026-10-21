@@ -33,3 +33,11 @@ stellar-payment-platform@1.0.0
 # Soroban test snapshots
 test_snapshots/
 .kiro/ 
+
+# Local database data (persistent dev PostgreSQL volume / local artifacts)
+data/
+pgdata/
+postgres_dev_data/
+*.db
+*.db-shm
+*.db-wal

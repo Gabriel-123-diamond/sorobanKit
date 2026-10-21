@@ -17,8 +17,38 @@ const SERVICE_VERSION = _pkg.version || 'unknown';
 const LOG_LEVEL = process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug');
 const IS_TEST = process.env.NODE_ENV === 'test';
 
+// Stellar public keys are PII. At debug level we truncate them to their first
+// 8 and last 4 characters (e.g. GABC1234...5678) before they are written.
+// At info level and above keys are logged in full for audit purposes.
+const STELLAR_ADDRESS_RE = /G[A-Z0-9]{55}/g;
+
+const sanitiseStellarAddresses = (value) => {
+  if (typeof value === 'string') {
+    return value.replace(STELLAR_ADDRESS_RE, (match) => `${match.slice(0, 8)}...${match.slice(-4)}`);
+  }
+  if (Array.isArray(value)) return value.map(sanitiseStellarAddresses);
+  if (value && typeof value === 'object') {
+    const clone = {};
+    for (const key of Object.keys(value)) {
+      clone[key] = sanitiseStellarAddresses(value[key]);
+    }
+    return clone;
+  }
+  return value;
+};
+
+const SANITISE_PII = LOG_LEVEL === 'debug';
+
 const logger = pino({
   level: IS_TEST ? 'silent' : LOG_LEVEL,
+  hooks: SANITISE_PII
+    ? {
+        logMethod(args, method) {
+          const sanitised = args.map((arg) => sanitiseStellarAddresses(arg));
+          return method.apply(this, sanitised);
+        },
+      }
+    : undefined,
   // Attach service name and version to every log record so records from
   // multiple services can be filtered in aggregated logging platforms
   // (Grafana Loki, Datadog, etc.) without ambiguity.
@@ -55,6 +85,8 @@ const redactSensitive = (obj) => {
       clone[key] = '[REDACTED]';
     } else if (typeof clone[key] === 'object' && clone[key] !== null) {
       clone[key] = redactSensitive(clone[key]);
+    } else if (SANITISE_PII) {
+      clone[key] = sanitiseStellarAddresses(clone[key]);
     }
   }
   return clone;
@@ -88,4 +120,4 @@ const httpLogger = pinoHttp({
   }
 });
 
-module.exports = { logger, httpLogger };
+module.exports = { logger, httpLogger, sanitiseStellarAddresses };
