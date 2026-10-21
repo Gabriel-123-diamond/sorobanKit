@@ -93,7 +93,7 @@ const [activeView, setActiveView] = useState('dashboard')
             // Save the address to state so the UI updates
             localStorage.setItem("walletPublicKey", publicKey);
             setUserPublicKey(publicKey);
-            
+            logger.debug("Wallet connected successfully.");
           } catch (err) {
             logger.error("Wallet connection failed:", err);
             toast.error("Failed to connect wallet.");
