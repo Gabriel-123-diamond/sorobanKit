@@ -2,11 +2,12 @@ const express = require('express');
 const { StrKey } = require('@stellar/stellar-sdk');
 const { PrismaClient } = require('@prisma/client');
 const { ApiError } = require('../errors');
+const { rejectNestedObjects } = require('../middleware/rejectNestedObjects');
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
-router.post('/register', async (req, res, next) => {
+router.post('/register', rejectNestedObjects, async (req, res, next) => {
   try {
     const { address, memo } = req.body || {};
 

@@ -670,5 +670,5 @@ See [LICENSE](LICENSE).
 <!-- handsoff-issue-67 -->
 - #67: Soroban contract does not enforce a minimum payment amount (allows amount=0)
 
-<!-- handsoff-issue-235 -->
-- #235: [#68] Grafana dashboard JSON uses hardcoded datasource UID that breaks on import
+<!-- handsoff-issue-229 -->
+- #229: [#62] `RegistrationPage.jsx` does not debounce the username availability check
