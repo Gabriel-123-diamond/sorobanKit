@@ -31,11 +31,25 @@ describe('runCleanup', () => {
         deleteMany: jest.fn().mockResolvedValue({ count: 3 }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      webhookDLQ: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 2 }),
+      },
     };
 
-    const result = await runCleanup(prisma);
+    const previousMaxAgeDays = process.env.WEBHOOK_DLQ_MAX_AGE_DAYS;
+    process.env.WEBHOOK_DLQ_MAX_AGE_DAYS = '14';
+    let result;
+    try {
+      result = await runCleanup(prisma);
+    } finally {
+      if (previousMaxAgeDays === undefined) {
+        delete process.env.WEBHOOK_DLQ_MAX_AGE_DAYS;
+      } else {
+        process.env.WEBHOOK_DLQ_MAX_AGE_DAYS = previousMaxAgeDays;
+      }
+    }
 
-    expect(result).toEqual({ pruned: 3, flagged: 1 });
+    expect(result).toEqual({ pruned: 3, flagged: 1, dlqPruned: 2 });
 
     expect(logger.info).toHaveBeenCalledWith('Purge completed', {
       table: 'User',
@@ -47,12 +61,21 @@ describe('runCleanup', () => {
       operation: 'updateMany',
       count: 1,
     });
+    expect(logger.info).toHaveBeenCalledWith('[cleanup-cron] Pruned old webhook DLQ entries', {
+      count: 2,
+    });
 
     const deleteWhere = prisma.user.deleteMany.mock.calls[0][0].where;
     expect(deleteWhere.address.notIn).toEqual([
       'GAPUQZH3WZUXHEMUGZN5ZYU4D4GHCFEMOGUINU6MF345GBD2QXNYYIEQ',
     ]);
     expect(deleteWhere.createdAt.lt).toBeInstanceOf(Date);
+
+    const dlqDeleteWhere = prisma.webhookDLQ.deleteMany.mock.calls[0][0].where;
+    expect(dlqDeleteWhere.movedAt.lt).toBeInstanceOf(Date);
+    const expectedDlqCutoff = new Date();
+    expectedDlqCutoff.setDate(expectedDlqCutoff.getDate() - 14);
+    expect(Math.abs(dlqDeleteWhere.movedAt.lt.getTime() - expectedDlqCutoff.getTime())).toBeLessThan(2000);
 
     const updateWhere = prisma.user.updateMany.mock.calls[0][0].where;
     expect(updateWhere.address.in).toEqual([
@@ -68,6 +91,9 @@ describe('runCleanup', () => {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      webhookDLQ: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
     };
 
     await runCleanup(prisma);
@@ -75,6 +101,33 @@ describe('runCleanup', () => {
     const cutoff = prisma.user.deleteMany.mock.calls[0][0].where.createdAt.lt;
     const expected = new Date();
     expected.setDate(expected.getDate() - STALE_THRESHOLD_DAYS);
+    expect(Math.abs(cutoff.getTime() - expected.getTime())).toBeLessThan(2000);
+  });
+
+  it('defaults DLQ retention to 30 days when unset', async () => {
+    const previousMaxAgeDays = process.env.WEBHOOK_DLQ_MAX_AGE_DAYS;
+    delete process.env.WEBHOOK_DLQ_MAX_AGE_DAYS;
+    const prisma = {
+      user: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      webhookDLQ: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
+
+    try {
+      await runCleanup(prisma);
+    } finally {
+      if (previousMaxAgeDays !== undefined) {
+        process.env.WEBHOOK_DLQ_MAX_AGE_DAYS = previousMaxAgeDays;
+      }
+    }
+
+    const cutoff = prisma.webhookDLQ.deleteMany.mock.calls[0][0].where.movedAt.lt;
+    const expected = new Date();
+    expected.setDate(expected.getDate() - 30);
     expect(Math.abs(cutoff.getTime() - expected.getTime())).toBeLessThan(2000);
   });
 });
@@ -103,12 +156,16 @@ describe('scheduleCleanupJob', () => {
         deleteMany: jest.fn().mockResolvedValue({ count: 2 }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      webhookDLQ: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 4 }),
+      },
     };
 
     scheduleCleanupJob(prisma);
     await scheduledCallback();
 
     expect(prisma.user.deleteMany).toHaveBeenCalledTimes(1);
+    expect(prisma.webhookDLQ.deleteMany).toHaveBeenCalledTimes(1);
     expect(logger.info).toHaveBeenCalledWith('Purge completed', {
       table: 'User',
       operation: 'deleteMany',
@@ -122,7 +179,8 @@ describe('scheduleCleanupJob', () => {
     expect(logger.info).toHaveBeenCalledWith('[cleanup-cron] Sweep complete', {
       pruned: 2,
       flagged: 1,
-      total: 3,
+      dlqPruned: 4,
+      total: 7,
     });
   });
 
@@ -136,6 +194,9 @@ describe('scheduleCleanupJob', () => {
       user: {
         deleteMany: jest.fn().mockRejectedValue(new Error('db down')),
         updateMany: jest.fn(),
+      },
+      webhookDLQ: {
+        deleteMany: jest.fn(),
       },
     };
 

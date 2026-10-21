@@ -37,6 +37,22 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
+      # Dependency caching strategy:
+      # - Caches installed node_modules plus the npm download cache (~/.npm).
+      # - The cache key is derived from hashFiles('**/package-lock.json'), so any
+      #   change to a lockfile produces a new key and invalidates the cache.
+      # - restore-keys provides a fallback to the most recent cache for this OS
+      #   when the exact key misses, so partial hits still save download time.
+      - name: Cache backend dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            stellar-payment-platform/node_modules
+            ~/.npm
+          key: ${{ runner.os }}-node-backend-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-backend-
+
       - name: Install backend dependencies
         working-directory: stellar-payment-platform
         run: npm install --legacy-peer-deps

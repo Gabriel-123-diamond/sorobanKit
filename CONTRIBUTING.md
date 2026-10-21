@@ -2,6 +2,8 @@
 
 Thanks for your interest in contributing! This guide covers local setup, running the test suites, and pull request conventions.
 
+> **Security:** Please do not report security vulnerabilities through public issues or pull requests. See [SECURITY.md](SECURITY.md) for our responsible disclosure process.
+
 ## Prerequisites
 
 | Tool | Version | Notes |
@@ -76,7 +78,7 @@ cargo test --manifest-path backend/Cargo.toml
 ### Contracts
 
 ```bash
-cargo test --manifest-path contracts/Cargo.toml
+cargo test --manifest-path payment_router/Cargo.toml
 ```
 
 ## Pull Request Conventions
@@ -86,3 +88,4 @@ cargo test --manifest-path contracts/Cargo.toml
 - Ensure all relevant test suites pass before opening a PR.
 - Reference the issue being addressed in the PR description (`Closes #<issue>`).
 - Keep PRs small and reviewable; avoid unrelated refactors.
+- For security-related changes, review [SECURITY.md](SECURITY.md) before opening a PR.
