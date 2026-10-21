@@ -3,19 +3,38 @@ const { Queue, Worker } = require('bullmq');
 const { createRedisConnection } = require('./config/redis');
 const { logger } = require('./logger');
 const { shouldFallbackToLocalRegistry } = require('./utils');
+const { exponentialDelay } = require('./utils/exponentialDelay');
 
 const WEBHOOK_TIMEOUT_MS = 10_000;
 const WEBHOOK_QUEUE_NAME = 'webhook-deliveries';
 const MAX_WEBHOOK_ATTEMPTS = 5;
-const WEBHOOK_BACKOFF_DELAY_MS = 1_000;
 const WEBHOOK_WORKER_CONCURRENCY = Number(process.env.WEBHOOK_CONCURRENCY) || 10;
 const MAX_RETRY_BACKLOG_DAYS = 3;
+
+// Exponential backoff configuration for failed webhook deliveries.
+// Base 30s, factor 2, capped at 1h, with ±10% jitter to avoid thundering herds.
+const WEBHOOK_RETRY_BASE_MS = Number(process.env.WEBHOOK_RETRY_BASE_MS) || 30_000;
+const WEBHOOK_RETRY_MAX_MS = Number(process.env.WEBHOOK_RETRY_MAX_MS) || 3_600_000;
+const WEBHOOK_RETRY_FACTOR = Number(process.env.WEBHOOK_RETRY_FACTOR) || 2;
+const WEBHOOK_RETRY_JITTER = 0.1;
+
+// Deprecated alias header; scheduled for removal.
+const WEBHOOK_SIGNATURE_ALIAS_HEADER = 'X-Stellar-Tags-Signature';
+const WEBHOOK_SIGNATURE_ALIAS_REMOVAL_VERSION = 'v2.0.0';
+const WEBHOOK_SIGNATURE_ALIAS_REMOVAL_DATE = '2025-12-31';
+
+const computeRetryDelay = (attempt) => exponentialDelay(
+  attempt,
+  WEBHOOK_RETRY_BASE_MS,
+  WEBHOOK_RETRY_MAX_MS,
+  WEBHOOK_RETRY_JITTER,
+  WEBHOOK_RETRY_FACTOR,
+);
 
 const WEBHOOK_JOB_OPTIONS = Object.freeze({
   attempts: MAX_WEBHOOK_ATTEMPTS,
   backoff: {
-    type: 'exponential',
-    delay: WEBHOOK_BACKOFF_DELAY_MS,
+    type: 'custom',
   },
   removeOnComplete: 1_000,
   removeOnFail: 5_000,
@@ -207,11 +226,15 @@ const sendWebhook = async (url, payload, secret) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // Primary header per issue #496 spec.
+        // Canonical signature header — always sent.
         'X-Webhook-Signature': signature,
-        // Legacy alias kept for backward compatibility.
-        'X-Stellar-Tags-Signature': signature,
+        // Deprecated alias kept for backward compatibility.
+        // Scheduled for removal in ${WEBHOOK_SIGNATURE_ALIAS_REMOVAL_VERSION}
+        // (${WEBHOOK_SIGNATURE_ALIAS_REMOVAL_DATE}). See docs/webhook-signature-verification.md.
+        [WEBHOOK_SIGNATURE_ALIAS_HEADER]: signature,
         'X-Webhook-Timestamp': timestamp,
+        // Deprecation notice surfaced to the receiving server.
+        Deprecation: `X-Stellar-Tags-Signature; removal-version=${WEBHOOK_SIGNATURE_ALIAS_REMOVAL_VERSION}; removal-date=${WEBHOOK_SIGNATURE_ALIAS_REMOVAL_DATE}`,
       },
       body: rawBody,
       signal: controller.signal,
@@ -262,6 +285,27 @@ const markWebhookFailure = async (prisma, poolRunFn, webhookId, now) => {
       [now.toISOString(), now.toISOString(), webhookId],
     );
   }
+};
+
+/**
+ * Emit a deprecation warning when an incoming merchant request relies solely
+ * on the deprecated alias header instead of the canonical signature header.
+ *
+ * @param {object} headers - request headers (lowercased keys expected)
+ * @returns {boolean} true when only the alias header was supplied
+ */
+const warnIfAliasOnly = (headers = {}) => {
+  const hasCanonical = Boolean(headers['x-webhook-signature']);
+  const hasAlias = Boolean(headers['x-stellar-tags-signature']);
+  if (hasAlias && !hasCanonical) {
+    logger.warn(
+      `[webhook-worker] Deprecated header ${WEBHOOK_SIGNATURE_ALIAS_HEADER} used without ` +
+      `X-Webhook-Signature; alias will be removed in ${WEBHOOK_SIGNATURE_ALIAS_REMOVAL_VERSION} ` +
+      `(${WEBHOOK_SIGNATURE_ALIAS_REMOVAL_DATE})`,
+    );
+    return true;
+  }
+  return false;
 };
 
 const processWebhookJob = async (job, { prisma, poolRunFn }) => {
@@ -321,7 +365,7 @@ const startWebhookWorker = ({ prisma, poolRunFn }) => {
   webhookWorker.on('failed', async (job, error) => {
     const maxAttempts = job?.opts?.attempts || MAX_WEBHOOK_ATTEMPTS;
     const attemptsMade = job?.attemptsMade || 1;
-    
+
     if (attemptsMade >= maxAttempts && job?.data?.webhook) {
       logger.error(`[webhook-worker] Delivery failed job=${job?.id || 'unknown'}: ${error.message}; retries exhausted (${attemptsMade}/${maxAttempts})`);
       try {
@@ -330,7 +374,11 @@ const startWebhookWorker = ({ prisma, poolRunFn }) => {
         logger.error(`[webhook-worker] Failed to move webhook ${job.data.webhook.id} to DLQ: ${dlqErr.message}`);
       }
     } else {
-      logger.error(`[webhook-worker] Delivery failed job=${job?.id || 'unknown'}: ${error.message}; retry scheduled (${attemptsMade}/${maxAttempts})`);
+      const nextDelayMs = computeRetryDelay(attemptsMade + 1);
+      logger.error(
+        `[webhook-worker] Delivery failed job=${job?.id || 'unknown'}: ${error.message}; ` +
+        `retry scheduled in ${nextDelayMs}ms (${attemptsMade}/${maxAttempts})`,
+      );
     }
   });
 
@@ -622,10 +670,18 @@ module.exports = {
   sendWebhook,
   computeSignature,
   detectSsrfTarget,
+  computeRetryDelay,
+  warnIfAliasOnly,
   WEBHOOK_TIMEOUT_MS,
   WEBHOOK_QUEUE_NAME,
   MAX_WEBHOOK_ATTEMPTS,
-  WEBHOOK_BACKOFF_DELAY_MS,
+  WEBHOOK_RETRY_BASE_MS,
+  WEBHOOK_RETRY_MAX_MS,
+  WEBHOOK_RETRY_FACTOR,
+  WEBHOOK_RETRY_JITTER,
+  WEBHOOK_SIGNATURE_ALIAS_HEADER,
+  WEBHOOK_SIGNATURE_ALIAS_REMOVAL_VERSION,
+  WEBHOOK_SIGNATURE_ALIAS_REMOVAL_DATE,
   WEBHOOK_JOB_OPTIONS,
   MAX_RETRY_BACKLOG_DAYS,
   getWebhooksExhaustedRetries,

@@ -49,6 +49,26 @@ const USER_DATABASE = {
   'lekan*localhost': 'GAPUQZH3WZUXHEMUGZN5ZYU4D4GHCFEMOGUINU6MF345GBD2QXNYYIEQ',
 };
 
+// #175 — exponential backoff with jitter for webhook retry scheduling.
+// Delay for `attempt` (1-based) is base * factor^(attempt-1), capped at `max`,
+// then randomised by ±`jitter` (fraction, default 0.1 = ±10%).
+const DEFAULT_RETRY_FACTOR = 2;
+const DEFAULT_RETRY_JITTER = 0.1;
+
+function exponentialDelay(attempt, base, max, jitter = DEFAULT_RETRY_JITTER, factor = DEFAULT_RETRY_FACTOR) {
+  const safeAttempt = Number.isFinite(attempt) && attempt > 0 ? Math.floor(attempt) : 1;
+  const safeBase = Number.isFinite(base) && base > 0 ? base : 0;
+  const safeMax = Number.isFinite(max) && max > 0 ? max : Infinity;
+  const safeFactor = Number.isFinite(factor) && factor > 0 ? factor : DEFAULT_RETRY_FACTOR;
+  const safeJitter = Number.isFinite(jitter) && jitter >= 0 ? jitter : DEFAULT_RETRY_JITTER;
+
+  const raw = safeBase * Math.pow(safeFactor, safeAttempt - 1);
+  const capped = Math.min(raw, safeMax);
+  const spread = capped * safeJitter;
+  const jittered = capped + (Math.random() * 2 - 1) * spread;
+  return Math.max(0, Math.round(jittered));
+}
+
 const shouldFallbackToLocalRegistry = (error) => {
   const code = typeof error?.code === 'string' ? error.code : '';
   const message = typeof error?.message === 'string' ? error.message : '';
@@ -68,4 +88,7 @@ module.exports = {
   VALID_MEMO_TYPES,
   USER_DATABASE,
   shouldFallbackToLocalRegistry,
+  exponentialDelay,
+  DEFAULT_RETRY_FACTOR,
+  DEFAULT_RETRY_JITTER,
 };

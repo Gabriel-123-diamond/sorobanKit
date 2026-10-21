@@ -215,9 +215,54 @@ setMetricsSources({ prisma, redisClient });
 const v1Router = require("./src/routes/v1")(redisClient);
 const v2Router = require("./src/routes/v2")(redisClient);
 
+// #177 — Tiered rate limiting. Authenticated integrators presenting a valid
+// X-Api-Key get a higher ceiling than anonymous clients, so a single bot from
+// one IP cannot exhaust the shared anonymous pool and deny service to others.
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_AUTHENTICATED =
+  parseInt(process.env.RATE_LIMIT_AUTHENTICATED, 10) || 1000;
+const RATE_LIMIT_ANONYMOUS =
+  parseInt(process.env.RATE_LIMIT_ANONYMOUS, 10) || 100;
+
+// Resolve the API key presented on the request, if any. Accepts the header
+// (preferred) or the legacy query-string fallback.
+const getRequestApiKey = (req) => {
+  const apiKey = req.headers["x-api-key"] || req.query.api_key;
+  return typeof apiKey === "string" && apiKey.trim() ? apiKey.trim() : null;
+};
+
+// Validate an API key against the API key store. Returns the owning record on
+// success, or null when the key is missing, unknown, revoked or expired.
+const validateApiKey = async (apiKey) => {
+  if (!apiKey) return null;
+  try {
+    const { validateApiKey: validate } = require("./src/services/apiKeyService");
+    const record = await validate(apiKey);
+    return record || null;
+  } catch (err) {
+    // Any failure to validate (store down, malformed key, etc.) must degrade
+    // to the anonymous tier rather than granting the higher limit.
+    logger.warn({ err }, "API key validation failed; using anonymous tier");
+    return null;
+  }
+};
+
+// Attach the validated API key record (if any) to the request so the limiter
+// can pick the right tier without re-validating.
+const apiKeyTier = async (req, res, next) => {
+  try {
+    req.apiKeyRecord = await validateApiKey(getRequestApiKey(req));
+  } catch (err) {
+    req.apiKeyRecord = null;
+  }
+  next();
+};
+
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  // The effective limit depends on the tier; resolved per request below.
+  max: (req) =>
+    req.apiKeyRecord ? RATE_LIMIT_AUTHENTICATED : RATE_LIMIT_ANONYMOUS,
   // Use Redis-backed store when available
   store: redisClient
     ? new RedisStore({
@@ -234,50 +279,28 @@ const limiter = rateLimit({
   // Prometheus scrapes /metrics on a fixed interval from a single address, so
   // counting those scrapes against the shared quota would 429 the scraper.
   skip: (req) => req.path === "/metrics",
-  // Key by authenticated user identifier when present (address/username),
-  // otherwise fall back to client IP. This lets registered/identified users
-  // get a per-account quota rather than being grouped by IP.
+  // Key by tier + identifier so the authenticated and anonymous pools are
+  // isolated from one another. Authenticated requests are keyed by API key;
+  // anonymous requests fall back to the client IP.
   keyGenerator: (req /*, res */) => {
     try {
-      // 1) x-api-key (admin or API key users)
-      const apiKey = req.headers["x-api-key"] || req.query.api_key;
-      if (apiKey) return String(apiKey);
-
-      // 2) JSON body address (e.g., /register)
-      if (
-        req.body &&
-        typeof req.body.address === "string" &&
-        req.body.address.trim()
-      ) {
-        return req.body.address.trim();
+      if (req.apiKeyRecord) {
+        return `auth:${req.apiKeyRecord.id || getRequestApiKey(req)}`;
       }
-
-      // 3) Query params: federation (q with type=id) or address param
-      if (req.query) {
-        if (
-          req.query.type === "id" &&
-          typeof req.query.q === "string" &&
-          req.query.q.trim()
-        ) {
-          return req.query.q.trim();
-        }
-        if (typeof req.query.address === "string" && req.query.address.trim()) {
-          return req.query.address.trim();
-        }
-        // Some endpoints use q for lookup by name; not an account id — skip.
-      }
-
-      // 4) URL path pattern: /v1/accounts/:account
-      const m =
-        req.originalUrl && req.originalUrl.match(/\/v1\/accounts\/([^/]+)/i);
-      if (m && m[1]) return decodeURIComponent(m[1]);
-
-      // Default to IP
-      return req.ip || (req.connection && req.connection.remoteAddress) || "";
+      return `anon:${req.ip || (req.connection && req.connection.remoteAddress) || ""}`;
     } catch (err) {
       // On error, fall back to IP so rate limiting still works
-      return req.ip || "";
+      return `anon:${req.ip || ""}`;
     }
+  },
+  // #177 — Include Retry-After on 429 responses so clients know when to retry.
+  handler: (req, res, next, options) => {
+    const retryAfter = Math.max(
+      1,
+      Math.ceil((options.windowMs || RATE_LIMIT_WINDOW_MS) / 1000),
+    );
+    res.set("Retry-After", String(retryAfter));
+    res.status(options.statusCode).json(options.message);
   },
 });
 
@@ -309,6 +332,10 @@ app.use(cors(corsOptions));
 // instead of the previous uniform 10kb, and answers oversized payloads with 413.
 app.use(bodySizeLimit);
 
+// #177 — Resolve the API key tier before the limiter runs so it can apply the
+// authenticated or anonymous ceiling, and fall back to anonymous for invalid
+// keys.
+app.use(apiKeyTier);
 app.use(limiter);
 const isPrimitive = (v) =>
   v === null || v === undefined || typeof v !== "object";
