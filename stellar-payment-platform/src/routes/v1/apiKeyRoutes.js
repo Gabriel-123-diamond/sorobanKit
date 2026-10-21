@@ -17,6 +17,22 @@ module.exports = (redisClient) => {
 
   const hashKey = (key) => crypto.createHash('sha256').update(key).digest('hex');
 
+  // SECURITY: API key hash comparisons must ALWAYS use crypto.timingSafeEqual
+  // (never `===` or string equality) to avoid timing attacks that could
+  // recover the hash character by character. Returns false on length mismatch
+  // instead of throwing.
+  const safeCompareHash = (incomingHash, storedHash) => {
+    if (typeof incomingHash !== 'string' || typeof storedHash !== 'string') {
+      return false;
+    }
+    const incoming = Buffer.from(incomingHash, 'hex');
+    const stored = Buffer.from(storedHash, 'hex');
+    if (incoming.length !== stored.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(incoming, stored);
+  };
+
   // Middleware: require a valid API key in the request
   const requireApiKey = asyncHandler(async (req, res, next) => {
     const authHeader = req.headers.authorization;
@@ -34,7 +50,7 @@ module.exports = (redisClient) => {
     const keyHash = hashKey(token);
     const record = await prisma.apiKey.findUnique({ where: { keyHash } });
 
-    if (!record) {
+    if (!record || !safeCompareHash(keyHash, record.keyHash)) {
       return next(new ApiError('UNAUTHENTICATED', 'Invalid API key'));
     }
 

@@ -63,9 +63,79 @@ const { app } = require('../server');
 const KEY_PREFIX = 'sk_live_';
 const hashKey = (key) => crypto.createHash('sha256').update(key).digest('hex');
 
-// The CI test profile seeds the database and exports the active API key.
-// Tests that need a real, seeded key read it from here instead of creating one.
-const TEST_ADMIN_API_KEY = process.env.TEST_ADMIN_API_KEY;
+// API key hash comparisons MUST use crypto.timingSafeEqual to avoid timing
+// side channels (see issue #186). These tests assert that requirement.
+describe('API key verification uses constant-time comparison', () => {
+  let timingSafeEqualSpy;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    timingSafeEqualSpy = jest.spyOn(crypto, 'timingSafeEqual');
+  });
+
+  afterEach(() => {
+    timingSafeEqualSpy.mockRestore();
+  });
+
+  it('invokes crypto.timingSafeEqual and returns 200 for a valid key', async () => {
+    const rawKey = `${KEY_PREFIX}validkey1234567890`;
+    mockApiKeyFindUnique.mockResolvedValue({
+      id: 'valid-key-id',
+      name: 'Valid Key',
+      ownerId: 'merchant@example.com',
+      keyHash: hashKey(rawKey),
+      keyPrefix: rawKey.slice(0, 12),
+      scopes: ['read', 'write'],
+      expiresAt: null,
+      revokedAt: null,
+      createdAt: new Date(),
+    });
+
+    const res = await request(app)
+      .get('/auth/api-keys')
+      .set('X-Api-Key', rawKey)
+      .query({ owner_id: 'merchant@example.com' });
+
+    expect(res.statusCode).toBe(200);
+    expect(timingSafeEqualSpy).toHaveBeenCalled();
+  });
+
+  it('invokes crypto.timingSafeEqual and returns 401 for an invalid key', async () => {
+    const rawKey = `${KEY_PREFIX}invalidkey1234567890`;
+    mockApiKeyFindUnique.mockResolvedValue({
+      id: 'valid-key-id',
+      name: 'Valid Key',
+      ownerId: 'merchant@example.com',
+      keyHash: hashKey(`${KEY_PREFIX}someotherkey0987654321`),
+      keyPrefix: 'sk_live_some',
+      scopes: ['read', 'write'],
+      expiresAt: null,
+      revokedAt: null,
+      createdAt: new Date(),
+    });
+
+    const res = await request(app)
+      .get('/auth/api-keys')
+      .set('X-Api-Key', rawKey)
+      .query({ owner_id: 'merchant@example.com' });
+
+    expect(res.statusCode).toBe(401);
+    expect(timingSafeEqualSpy).toHaveBeenCalled();
+  });
+
+  it('invokes crypto.timingSafeEqual and returns 401 when no key record exists', async () => {
+    const rawKey = `${KEY_PREFIX}unknownkey1234567890`;
+    mockApiKeyFindUnique.mockResolvedValue(null);
+
+    const res = await request(app)
+      .get('/auth/api-keys')
+      .set('X-Api-Key', rawKey)
+      .query({ owner_id: 'merchant@example.com' });
+
+    expect(res.statusCode).toBe(401);
+    expect(timingSafeEqualSpy).toHaveBeenCalled();
+  });
+});
 
 describe('API Key Management Endpoints', () => {
   beforeEach(() => {

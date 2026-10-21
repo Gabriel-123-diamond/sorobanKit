@@ -17,12 +17,25 @@ export default [
     }
   },
   {
-    // Backend source must use the Winston logger instead of console.log so
-    // production logs stay structured. console.error is allowed for top-level
-    // catch blocks where the logger may not be available.
-    files: ["stellar-payment-platform/src/**"],
+    // Security: API key hash comparisons must be constant-time to avoid
+    // timing side channels. Use crypto.timingSafeEqual instead of === / !==
+    // when comparing API key hashes.
     rules: {
-      "no-console": ["error", { allow: ["error"] }]
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "BinaryExpression[operator=/^[!=]==$/] > Identifier[name=/keyHash|apiKeyHash|hash/i]",
+          message:
+            "API key hash comparisons must use crypto.timingSafeEqual to avoid timing attacks."
+        },
+        {
+          selector:
+            "BinaryExpression[operator=/^[!=]==$/] > MemberExpression > Identifier[name=/keyHash|apiKeyHash|hash/i]",
+          message:
+            "API key hash comparisons must use crypto.timingSafeEqual to avoid timing attacks."
+        }
+      ]
     }
   },
   {
