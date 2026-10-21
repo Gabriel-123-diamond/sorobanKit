@@ -575,6 +575,85 @@
       ],
       "title": "CPU Usage",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+      "id": 14,
+      "title": "Alerts",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 5 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "id": 15,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "stellar_tags_db_pool_queries_waiting{instance=~\"$instance\"}",
+          "legendFormat": "Queries Waiting",
+          "refId": "A"
+        }
+      ],
+      "title": "DB Pool Queries Waiting (alert: > 5 for 30s)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 5 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "id": 16,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "max(stellar_tags_db_pool_queries_waiting{instance=~\"$instance\"})",
+          "legendFormat": "Max Waiting",
+          "refId": "A"
+        }
+      ],
+      "title": "StellarTagsDBPoolWaiting",
+      "type": "stat"
     }
   ],
   "schemaVersion": 39,

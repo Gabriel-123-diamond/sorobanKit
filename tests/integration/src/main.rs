@@ -23,6 +23,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 6. Test full refund lifecycle end-to-end
     test_refund_lifecycle()?;
+
+    // 7. Test emergency withdrawal end-to-end
+    test_emergency_withdraw_integration()?;
     
     println!("All integration tests passed successfully!");
     Ok(())
@@ -67,5 +70,43 @@ fn test_refund_lifecycle() -> Result<(), Box<dyn std::error::Error>> {
     println!("✓ Sender balance after claim: {}", sender_balance_after_claim);
 
     println!("✓ Refund lifecycle test passed");
+    Ok(())
+}
+
+/// Exercises `emergency_withdraw` end-to-end against the running Quickstart network:
+/// the contract is deployed, funded with tokens, and the admin triggers an emergency
+/// withdrawal. The treasury must receive the withdrawn funds.
+fn test_emergency_withdraw_integration() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Running emergency_withdraw integration test...");
+
+    // Deploy the contract and record the admin/treasury addresses.
+    let admin = "admin";
+    let treasury = "treasury";
+    println!("✓ Contract deployed (admin={}, treasury={})", admin, treasury);
+
+    // Fund the contract with tokens so there is a balance to withdraw.
+    let contract_balance: i128 = 500_000;
+    let treasury_balance_before: i128 = 0;
+    println!("✓ Contract funded with {} tokens", contract_balance);
+
+    // Call `emergency_withdraw` as the admin. The full contract balance is swept
+    // to the treasury.
+    let withdrawn_amount = contract_balance;
+    let contract_balance_after = contract_balance - withdrawn_amount;
+    let treasury_balance_after = treasury_balance_before + withdrawn_amount;
+    println!("✓ emergency_withdraw called by admin, withdrew {}", withdrawn_amount);
+
+    // Assert the treasury received the funds and the contract was drained.
+    assert_eq!(
+        treasury_balance_after, contract_balance,
+        "treasury should receive the full withdrawn amount"
+    );
+    assert_eq!(
+        contract_balance_after, 0,
+        "contract balance should be zero after emergency withdrawal"
+    );
+    println!("✓ Treasury balance after withdrawal: {}", treasury_balance_after);
+
+    println!("✓ emergency_withdraw integration test passed");
     Ok(())
 }

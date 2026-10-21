@@ -70,15 +70,20 @@ const optionalLookupString = lookupString.optional();
  * suffix afterwards. Addresses are only required to be non-empty strings at
  * this layer because the handler runs the authoritative StrKey check and
  * answers 400 with a Stellar-specific message.
+ *
+ * Username is coerced to lowercase so that "Alice" and "alice" always refer
+ * to the same registration slot (federation addresses are case-insensitive
+ * by convention).
  */
 const registerBodySchema = z
   .object({
     username: z
       .string({ error: 'username is required' })
       .trim()
+      .toLowerCase()
       .min(3, 'username must be between 3 and 20 characters')
       .max(20, 'username must be between 3 and 20 characters')
-      .regex(/^[a-zA-Z0-9]+$/, 'username must contain only letters and numbers'),
+      .regex(/^[a-z0-9]+$/, 'username must contain only letters and numbers'),
     // Only required to be a non-empty string: StrKey in the handler is the
     // authoritative format check and answers 400 with a Stellar-specific
     // message. Adding a length bound here would reject payloads before they
@@ -206,6 +211,19 @@ const exportQuerySchema = z
   })
   .loose();
 
+/**
+ * GET /admin/audit-logs query.
+ *
+ * - `limit` integer 1–100 (default 50). Values above 100 are clamped to 100
+ *   rather than rejected, matching the behaviour of the other paginated
+ *   endpoints in this codebase.
+ */
+const adminAuditLogsQuerySchema = z
+  .object({
+    limit: clampedInt(50, 1, 100),
+  })
+  .loose();
+
 /** POST /admin/block */
 const adminBlockBodySchema = z
   .object({
@@ -235,6 +253,14 @@ const adminExportQuerySchema = z
       .optional(),
   })
   .loose()
+  .refine((value) => !value.endDate || value.endDate >= '1970-01-01', {
+    error: 'endDate must be on or after 1970-01-01',
+    path: ['endDate'],
+  })
+  .refine((value) => !value.startDate || value.startDate <= '2100-01-01', {
+    error: 'startDate must be on or before 2100-01-01',
+    path: ['startDate'],
+  })
   .refine(
     (value) => {
       if (value.startDate && value.endDate) {
@@ -364,6 +390,7 @@ module.exports = {
   verifyEmailBodySchema,
   verifyEmailConfirmBodySchema,
   adminBlockBodySchema,
+  adminAuditLogsQuerySchema,
   exportQuerySchema,
   adminExportQuerySchema,
   adminRoutingStatsQuerySchema,

@@ -24,11 +24,17 @@ jobs:
           cache: 'npm'
           cache-dependency-path: ./stellar-payment-platform/package-lock.json
 
+      # Caching strategy: cache node_modules (and the npm cache) keyed on the
+      # hash of package-lock.json. The cache is automatically invalidated when
+      # any package-lock.json changes; restore-keys provide a fallback to the
+      # most recent cache for this project so partial hits still speed up
+      # installs. This step must run before dependency installation.
       - name: Cache Backend node_modules
         uses: actions/cache@v4
         with:
           path: |
             stellar-payment-platform/node_modules
+            payment-dashboard/node_modules
             ~/.npm
           key: ${{ runner.os }}-node-backend-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
@@ -75,10 +81,16 @@ jobs:
           cache: 'npm'
           cache-dependency-path: ./payment-dashboard/package-lock.json
 
+      # Caching strategy: cache node_modules (and the npm cache) keyed on the
+      # hash of package-lock.json. The cache is automatically invalidated when
+      # any package-lock.json changes; restore-keys provide a fallback to the
+      # most recent cache for this project so partial hits still speed up
+      # installs. This step must run before dependency installation.
       - name: Cache Frontend node_modules
         uses: actions/cache@v4
         with:
           path: |
+            stellar-payment-platform/node_modules
             payment-dashboard/node_modules
             ~/.npm
           key: ${{ runner.os }}-node-frontend-${{ hashFiles('**/package-lock.json') }}

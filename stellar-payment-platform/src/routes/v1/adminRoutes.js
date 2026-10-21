@@ -20,6 +20,7 @@ const {
   adminBlockBodySchema,
   adminExportQuerySchema,
   adminRoutingStatsQuerySchema,
+  adminAuditLogsQuerySchema,
 } = require('../../schemas');
 const { streamAdminExport } = require('../../utils/exporter');
 const { getRoutingStats } = require('../../services/statsService');
@@ -83,20 +84,33 @@ module.exports = (redisClient) => {
 router.get('/admin/export', adminAuth, asyncHandler(async (req, res, next) => {
     const { format = 'csv', startDate, endDate } = req.query;
 
-    // Validate date range when provided
+    // Validate the date window BEFORE opening any Prisma cursor so that
+    // obviously invalid ranges fail deterministically without a DB connection.
+    const MIN_EXPORT_DATE = new Date('1970-01-01T00:00:00.000Z');
+    const MAX_EXPORT_DATE = new Date('2100-01-01T00:00:00.000Z');
+
+    const invalidInput = (message) =>
+      res.status(400).json({ error: message, code: 'INVALID_INPUT' });
+
     let dateFilter;
     if (startDate || endDate) {
       const gte = startDate ? new Date(startDate) : undefined;
       const lte = endDate ? new Date(endDate) : undefined;
 
       if (gte && isNaN(gte.getTime())) {
-        return res.status(400).json({ error: 'Invalid startDate' });
+        return invalidInput('Invalid startDate');
       }
       if (lte && isNaN(lte.getTime())) {
-        return res.status(400).json({ error: 'Invalid endDate' });
+        return invalidInput('Invalid endDate');
       }
       if (gte && lte && gte > lte) {
-        return res.status(400).json({ error: 'startDate must not be after endDate' });
+        return invalidInput('startDate must not be after endDate');
+      }
+      if (lte && lte < MIN_EXPORT_DATE) {
+        return invalidInput('endDate must not be before 1970-01-01');
+      }
+      if (gte && gte > MAX_EXPORT_DATE) {
+        return invalidInput('startDate must not be after 2100-01-01');
       }
       dateFilter = {};
       if (gte) dateFilter.gte = gte;
@@ -462,9 +476,10 @@ router.post('/admin/block', adminAuth, asyncHandler(async (req, res, next) => {
 router.get(
     '/admin/audit-logs',
     adminAuth,
+    validateSchema({ query: adminAuditLogsQuerySchema }),
     asyncHandler(async (req, res) => {
       const { prisma } = getPrisma();
-      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+      const limit = req.query.limit;
       const logs = await prisma.auditLog.findMany({
         take: limit,
         orderBy: { createdAt: 'desc' },

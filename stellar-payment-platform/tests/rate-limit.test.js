@@ -271,4 +271,126 @@ describe('Rate Limiting — express-rate-limit', () => {
       expect(res.headers).toHaveProperty('ratelimit-limit');
     });
   });
+
+  // ── Tiered rate limiting (authenticated vs anonymous) ────────────────────
+
+  describe('tiered rate limiting', () => {
+    const ANONYMOUS_LIMIT = 100;
+    const AUTHENTICATED_LIMIT = 1000;
+    const VALID_API_KEY = 'valid-api-key';
+    const INVALID_API_KEY = 'invalid-api-key';
+
+    // The API key validator is mocked so that only VALID_API_KEY is accepted.
+    beforeEach(() => {
+      const { prisma } = require('../prismaClient');
+      prisma.apiKey = {
+        findUnique: jest.fn(({ where }) =>
+          Promise.resolve(
+            where && where.key === VALID_API_KEY
+              ? { id: 'key-1', key: VALID_API_KEY, revoked: false }
+              : null,
+          ),
+        ),
+        findFirst: jest.fn(({ where }) =>
+          Promise.resolve(
+            where && where.key === VALID_API_KEY
+              ? { id: 'key-1', key: VALID_API_KEY, revoked: false }
+              : null,
+          ),
+        ),
+      };
+    });
+
+    it('applies the anonymous limit to requests without an API key', async () => {
+      const res = await request(app)
+        .get('/api/v1/federation')
+        .query({ q: 'client*localhost' });
+
+      expect(res.status).toBe(200);
+      expect(res.headers['ratelimit-limit']).toBe(String(ANONYMOUS_LIMIT));
+    });
+
+    it('applies the higher authenticated limit to valid X-Api-Key requests', async () => {
+      const res = await request(app)
+        .get('/api/v1/federation')
+        .query({ q: 'client*localhost' })
+        .set('X-Api-Key', VALID_API_KEY);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['ratelimit-limit']).toBe(String(AUTHENTICATED_LIMIT));
+    });
+
+    it('falls back to the anonymous limit for an invalid API key', async () => {
+      const res = await request(app)
+        .get('/api/v1/federation')
+        .query({ q: 'client*localhost' })
+        .set('X-Api-Key', INVALID_API_KEY);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['ratelimit-limit']).toBe(String(ANONYMOUS_LIMIT));
+    });
+
+    it('exhausts the anonymous pool without affecting the authenticated pool', async () => {
+      // Drain the anonymous budget.
+      for (let i = 0; i < ANONYMOUS_LIMIT; i++) {
+        await request(app)
+          .get('/api/v1/federation')
+          .query({ q: 'client*localhost' });
+      }
+
+      const anonymousRes = await request(app)
+        .get('/api/v1/federation')
+        .query({ q: 'client*localhost' });
+
+      expect(anonymousRes.status).toBe(429);
+      expect(anonymousRes.headers).toHaveProperty('retry-after');
+
+      // The authenticated pool must still be available.
+      const authenticatedRes = await request(app)
+        .get('/api/v1/federation')
+        .query({ q: 'client*localhost' })
+        .set('X-Api-Key', VALID_API_KEY);
+
+      expect(authenticatedRes.status).toBe(200);
+      expect(authenticatedRes.headers['ratelimit-limit']).toBe(
+        String(AUTHENTICATED_LIMIT),
+      );
+    });
+
+    it('allows authenticated requests beyond the anonymous limit', async () => {
+      // Send more requests than the anonymous limit allows.
+      for (let i = 0; i < ANONYMOUS_LIMIT + 5; i++) {
+        const res = await request(app)
+          .get('/api/v1/federation')
+          .query({ q: 'client*localhost' })
+          .set('X-Api-Key', VALID_API_KEY);
+
+        expect(res.status).toBe(200);
+      }
+    });
+
+    it('includes Retry-After header on authenticated 429 responses', async () => {
+      for (let i = 0; i < AUTHENTICATED_LIMIT; i++) {
+        await request(app)
+          .get('/api/v1/federation')
+          .query({ q: 'client*localhost' })
+          .set('X-Api-Key', VALID_API_KEY);
+      }
+
+      const res = await request(app)
+        .get('/api/v1/federation')
+        .query({ q: 'client*localhost' })
+        .set('X-Api-Key', VALID_API_KEY);
+
+      expect(res.status).toBe(429);
+      expect(res.headers).toHaveProperty('retry-after');
+      expect(res.body).toEqual({
+        success: false,
+        error: {
+          code: 'RATE_LIMITED',
+          message: 'Too many requests, please try again later.',
+        },
+      });
+    });
+  });
 });

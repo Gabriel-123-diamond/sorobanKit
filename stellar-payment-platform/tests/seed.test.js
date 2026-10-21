@@ -223,6 +223,27 @@ describe('api keys', () => {
     expect(apiKeys.filter((k) => !k.record.revokedAt)).toHaveLength(1);
     expect(apiKeys.filter((k) => k.record.revokedAt)).toHaveLength(1);
   });
+
+  test('the active key is emitted in the parseable TEST_ADMIN_API_KEY form', () => {
+    const active = apiKeys.filter((k) => !k.record.revokedAt);
+    expect(active).toHaveLength(1);
+
+    const line = `TEST_ADMIN_API_KEY=${active[0].rawKey}`;
+    const parsed = Object.fromEntries(
+      line
+        .split('\n')
+        .filter((l) => l && !l.startsWith('#'))
+        .map((l) => {
+          const idx = l.indexOf('=');
+          return [l.slice(0, idx), l.slice(idx + 1)];
+        }),
+    );
+
+    expect(parsed.TEST_ADMIN_API_KEY).toBe(active[0].rawKey);
+    expect(parsed.TEST_ADMIN_API_KEY).toMatch(/^sk_live_[0-9a-f]+$/);
+    expect(parsed.TEST_ADMIN_API_KEY).toBe(active[0].rawKey);
+    expect(parsed.TEST_ADMIN_API_KEY).not.toBe(apiKeys.find((k) => k.record.revokedAt).rawKey);
+  });
 });
 
 describe('writeSeedData', () => {
@@ -277,6 +298,56 @@ describe('writeSeedData', () => {
     for (const model of ['user', 'webhook', 'paymentIntent', 'apiKey']) {
       expect(second[model].upsert.mock.calls).toEqual(first[model].upsert.mock.calls);
     }
+  });
+
+  test('re-running the seed against the same database is idempotent', async () => {
+    const prisma = mockPrisma();
+
+    await writeSeedData(prisma, data);
+    const firstRun = {
+      user: [...prisma.user.upsert.mock.calls],
+      webhook: [...prisma.webhook.upsert.mock.calls],
+      paymentIntent: [...prisma.paymentIntent.upsert.mock.calls],
+      apiKey: [...prisma.apiKey.upsert.mock.calls],
+    };
+
+    await writeSeedData(prisma, data);
+    const secondRun = {
+      user: prisma.user.upsert.mock.calls.slice(firstRun.user.length),
+      webhook: prisma.webhook.upsert.mock.calls.slice(firstRun.webhook.length),
+      paymentIntent: prisma.paymentIntent.upsert.mock.calls.slice(firstRun.paymentIntent.length),
+      apiKey: prisma.apiKey.upsert.mock.calls.slice(firstRun.apiKey.length),
+    };
+
+    for (const model of ['user', 'webhook', 'paymentIntent', 'apiKey']) {
+      expect(secondRun[model]).toEqual(firstRun[model]);
+    }
+    // Upserts only: a re-run must never create or delete rows.
+    for (const model of ['user', 'webhook', 'paymentIntent', 'apiKey']) {
+      expect(prisma[model].deleteMany).not.toHaveBeenCalled();
+    }
+  });
+
+  test('the active API key is stable across runs so CI can export it', async () => {
+    const active = data.apiKeys.filter((k) => !k.record.revokedAt);
+    expect(active).toHaveLength(1);
+
+    const first = mockPrisma();
+    const second = mockPrisma();
+    await writeSeedData(first, data);
+    await writeSeedData(second, data);
+
+    const activeUpsert = (prisma) =>
+      prisma.apiKey.upsert.mock.calls.find(
+        ([call]) => call.where.keyHash === active[0].record.keyHash,
+      );
+    expect(activeUpsert(second)).toEqual(activeUpsert(first));
+
+    // The raw key handed to CI is the same one the stored hash was derived from.
+    const crypto = require('crypto');
+    expect(active[0].record.keyHash).toBe(
+      crypto.createHash('sha256').update(active[0].rawKey).digest('hex'),
+    );
   });
 
   test('reset deletes only the rows the seed owns', async () => {

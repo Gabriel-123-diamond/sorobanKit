@@ -17,7 +17,11 @@
  */
 
 const { logger } = require('../logger');
-const { DEPRECATIONS } = require('../config/deprecations');
+const { DEPRECATIONS, HEADER_DEPRECATIONS } = require('../config/deprecations');
+
+// Canonical webhook signature header and its deprecated backward-compatible alias.
+const WEBHOOK_SIGNATURE_HEADER = 'x-webhook-signature';
+const WEBHOOK_SIGNATURE_ALIAS_HEADER = 'x-stellar-tags-signature';
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -75,6 +79,55 @@ const loggedKeys = new Set();
 
 const resetDeprecationLogger = () => loggedKeys.clear();
 
+// Throttles the alias-only warning so each request path is logged at most once
+// per process, avoiding log floods from high-traffic webhook consumers.
+const loggedAliasKeys = new Set();
+
+const resetAliasDeprecationLogger = () => loggedAliasKeys.clear();
+
+/**
+ * Emits a deprecation warning when a request supplies the deprecated
+ * X-Stellar-Tags-Signature alias header but omits the canonical
+ * X-Webhook-Signature header.
+ *
+ * @param {object} req Express request.
+ * @param {object} [registry] Header deprecation registry (primarily for tests).
+ * @returns {object|null} The matching header deprecation entry, if any.
+ */
+const warnOnAliasOnlySignature = (req, registry = HEADER_DEPRECATIONS) => {
+  const headers = req.headers || {};
+  const hasAlias = headers[WEBHOOK_SIGNATURE_ALIAS_HEADER] !== undefined;
+  const hasCanonical = headers[WEBHOOK_SIGNATURE_HEADER] !== undefined;
+  if (!hasAlias || hasCanonical) return null;
+
+  const entry = (registry || []).find(
+    (item) => String(item.header || '').toLowerCase() === WEBHOOK_SIGNATURE_ALIAS_HEADER,
+  );
+  if (!entry) return null;
+
+  const key = `${req.method} ${req.path}`;
+  if (loggedAliasKeys.has(key)) return entry;
+  loggedAliasKeys.add(key);
+
+  logger.warn(
+    {
+      type: 'deprecation',
+      header: entry.header,
+      replacement: entry.replacement || null,
+      sunset: entry.sunsetDate || null,
+      removalVersion: entry.removalVersion || null,
+      documentation: entry.documentation || null,
+      method: req.method,
+      path: req.path,
+      correlationId: req.correlationId,
+    },
+    `Deprecated header ${entry.header} used without ${entry.replacement || WEBHOOK_SIGNATURE_HEADER}; ` +
+      `the alias will be removed in ${entry.removalVersion || 'a future release'}${entry.sunsetDate ? ` (after ${entry.sunsetDate})` : ''}.`,
+  );
+
+  return entry;
+};
+
 /**
  * Express middleware factory.
  *
@@ -87,6 +140,10 @@ const deprecationMiddleware = (options = {}) => {
   const registry = options.registry || DEPRECATIONS;
 
   return (req, res, next) => {
+    // Detect reliance on the deprecated signature alias header regardless of
+    // whether the route itself is registered as deprecated.
+    warnOnAliasOnlySignature(req);
+
     const entry = findDeprecation(req.method, req.path, registry);
     if (!entry) return next();
 
@@ -151,4 +208,6 @@ module.exports = {
   pathMatches,
   toHttpDate,
   resetDeprecationLogger,
+  warnOnAliasOnlySignature,
+  resetAliasDeprecationLogger,
 };

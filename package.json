@@ -1,34 +1,37 @@
 {
-  "name": "stellar-tags-root",
+  "name": "stellar-defi-backend",
   "version": "1.0.0",
-  "private": true,
+  "description": "Backend API for Stellar DeFi application",
+  "main": "src/index.js",
   "scripts": {
     "start": "npm --prefix stellar-payment-platform start",
     "lint": "eslint .",
     "prepare": "husky",
     "load:test": "artillery run artillery.yml",
     "generate:bindings": "bash scripts/generate-bindings.sh",
+    "test:unit": "npm --prefix stellar-payment-platform test -- --testPathPattern=tests/unit --passWithNoTests",
     "test:integration": "bash tests/integration/run.sh",
     "test:all": "npm test --workspace=payment-dashboard && npm test --workspace=stellar-payment-platform && cd payment_router && cargo test",
     "contract:build": "node scripts/deploy.js build",
     "contract:deploy": "node scripts/deploy.js deploy",
-    "contract:upgrade": "node scripts/deploy.js upgrade"
+    "contract:upgrade": "node scripts/deploy.js upgrade",
+    "deploy:verify-hash": "node scripts/deploy.js verify-hash"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "artillery": "^2.0.33",
-    "eslint": "^10.5.0",
-    "globals": "^17.6.0",
-    "husky": "^9.1.7",
-    "lint-staged": "^17.0.7"
+    "@types/jest": "^29.5.14",
+    "eslint": "^8.57.1",
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.7",
+    "prisma": "^5.22.0",
+    "supertest": "^7.0.0"
   },
-  "lint-staged": {
-    "stellar-payment-platform/**/*.js": "eslint",
-    "payment-dashboard/**/*.{js,jsx}": "npm --prefix payment-dashboard run lint"
+  "engines": {
+    "node": ">=18.0.0"
   },
-  "dependencies": {
-    "@creit.tech/stellar-wallets-kit": "^2.5.0",
-    "bad-words": "^3.0.4",
-    "xss": "^1.0.15"
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["**/tests/**/*.test.js"],
+    "collectCoverageFrom": ["src/**/*.js", "!src/index.js"],
+    "setupFilesAfterEnv": ["<rootDir>/tests/setup.js"]
   }
 }
