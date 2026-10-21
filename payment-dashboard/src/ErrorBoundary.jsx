@@ -18,20 +18,31 @@ class ErrorBoundary extends Component {
     window.location.reload()
   }
 
+  handleRetry = () => {
+    this.setState({ hasError: false, error: null })
+    if (typeof this.props.onRetry === 'function') {
+      this.props.onRetry()
+    }
+  }
+
   render() {
     if (this.state.hasError) {
+      const { errorMessage, retryLabel } = this.props
       return (
         <div className="error-boundary" role="alert">
           <h1>Something went wrong</h1>
           <p>
-            An unexpected error occurred while rendering this page. You can try
-            reloading the page to recover.
+            {errorMessage ||
+              'An unexpected error occurred while rendering this page. You can try reloading the page to recover.'}
           </p>
           {this.state.error && this.state.error.message ? (
             <pre className="error-boundary-details">
               {this.state.error.message}
             </pre>
           ) : null}
+          <button type="button" onClick={this.handleRetry}>
+            {retryLabel || 'Retry'}
+          </button>
           <button type="button" onClick={this.handleReload}>
             Reload page
           </button>
