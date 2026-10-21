@@ -11,12 +11,31 @@ const AnalyticsPage = lazy(() => import('./views/AnalyticsPage.jsx'));
 const HistoryPage = lazy(() => import('./views/HistoryPage.jsx'));
 const RegistrationPage = lazy(() => import('./views/RegistrationPage.jsx'));
 
-const KEYBOARD_SHORTCUTS = [
-  { keys: 'Alt+R', description: 'Go to Registration' },
-  { keys: 'Alt+H', description: 'Go to History' },
-  { keys: 'Alt+A', description: 'Go to Analytics' },
-  { keys: '?', description: 'Open this keyboard shortcuts dialog' },
-];
+const WALLET_STORAGE_KEY = 'stellar.wallet.publicKey';
+
+function readStoredWalletKey() {
+  try {
+    return localStorage.getItem(WALLET_STORAGE_KEY) || '';
+  } catch (err) {
+    return '';
+  }
+}
+
+function persistWalletKey(publicKey) {
+  try {
+    localStorage.setItem(WALLET_STORAGE_KEY, publicKey);
+  } catch (err) {
+    logger.error('Failed to persist wallet key:', err);
+  }
+}
+
+function clearStoredWalletKey() {
+  try {
+    localStorage.removeItem(WALLET_STORAGE_KEY);
+  } catch (err) {
+    logger.error('Failed to clear stored wallet key:', err);
+  }
+}
 
 function generateRequestId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -132,7 +151,7 @@ function ShortcutsModal({ onClose }) {
 function App() {
 const [activeView, setActiveView] = useState('dashboard')
   const [userPublicKey, setUserPublicKey] = useState(() => {
-    return localStorage.getItem('walletPublicKey') || ''
+    return readStoredWalletKey()
   })
   const [registrationState, setRegistrationState] = useState("unknown");
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -152,6 +171,51 @@ const [activeView, setActiveView] = useState('dashboard')
   }, []);
 
   const WALLET_TIMEOUT_MS = 15_000;
+
+  // Attempt silent reconnection using the persisted public key on app load.
+  useEffect(() => {
+    const storedKey = readStoredWalletKey();
+    if (!storedKey) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const restore = async () => {
+      try {
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Wallet reconnection timed out')), WALLET_TIMEOUT_MS)
+        );
+        const addressResponse = await Promise.race([walletKit.getAddress(), timeoutPromise]);
+        const publicKey = typeof addressResponse === 'string'
+          ? addressResponse
+          : addressResponse?.address;
+
+        if (cancelled) {
+          return;
+        }
+
+        if (!publicKey || publicKey !== storedKey) {
+          throw new Error('Wallet no longer matches stored key');
+        }
+
+        setUserPublicKey(publicKey);
+      } catch (err) {
+        if (cancelled) {
+          return;
+        }
+        logger.error('Silent wallet reconnection failed:', err);
+        clearStoredWalletKey();
+        setUserPublicKey('');
+      }
+    };
+
+    restore();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleConnectWallet = async () => {
     try {
@@ -180,7 +244,7 @@ const [activeView, setActiveView] = useState('dashboard')
             }
 
             // Save the address to state so the UI updates
-            localStorage.setItem("walletPublicKey", publicKey);
+            persistWalletKey(publicKey);
             setUserPublicKey(publicKey);
             
           } catch (err) {
@@ -199,7 +263,7 @@ const [activeView, setActiveView] = useState('dashboard')
   };
 
   const handleDisconnectWallet = () => {
-    localStorage.removeItem('walletPublicKey')
+    clearStoredWalletKey()
     setUserPublicKey('')
     setBalance(null);
   };
