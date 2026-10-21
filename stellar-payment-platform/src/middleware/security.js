@@ -10,6 +10,14 @@
 
 const helmet = require('helmet');
 
+// SECURITY REQUIREMENT: API key hash verification must be constant-time.
+// Any middleware or route that compares a hash of an incoming `X-Api-Key`
+// against a stored hash MUST use `crypto.timingSafeEqual` (via the shared
+// helper) rather than `===` or any other string equality check. String
+// comparison leaks timing information that can be used to recover the hash
+// character by character. Preserve this requirement when modifying
+// security-related middleware.
+
 // API-only service: block every resource type by default. Explicit allowances
 // (script-src, style-src, etc.) are intentionally absent because no HTML is
 // served and no browser will render a page from this origin.
