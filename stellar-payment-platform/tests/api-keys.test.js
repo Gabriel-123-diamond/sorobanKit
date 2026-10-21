@@ -548,4 +548,59 @@ describe('API Key Management Endpoints', () => {
       expect(diffHours).toBeCloseTo(1, 0);
     });
   });
+
+  describe('Seeded API key (TEST_ADMIN_API_KEY)', () => {
+    // Skip when the seed has not run (e.g. local runs without the test profile),
+    // but fail loudly in CI where the key is required.
+    const describeIfKey = TEST_ADMIN_API_KEY ? describe : describe.skip;
+
+    if (!TEST_ADMIN_API_KEY && process.env.CI) {
+      it('TEST_ADMIN_API_KEY must be set in CI', () => {
+        throw new Error(
+          'TEST_ADMIN_API_KEY is not set. The test profile must run `npm run db:seed` ' +
+            'after migrations and export the active API key.',
+        );
+      });
+    }
+
+    describeIfKey('authenticated requests with the seeded key', () => {
+      it('exposes a key with the expected prefix', () => {
+        expect(TEST_ADMIN_API_KEY).toMatch(/^sk_live_/);
+      });
+
+      it('authenticates against the test server', async () => {
+        const res = await request(app)
+          .get('/auth/api-keys')
+          .set('Authorization', `Bearer ${TEST_ADMIN_API_KEY}`)
+          .query({ owner_id: 'admin@example.com' });
+
+        // The seeded key must be accepted (not rejected as invalid/unauthorized).
+        expect([200, 400, 404]).toContain(res.statusCode);
+        expect(res.statusCode).not.toBe(401);
+        expect(res.statusCode).not.toBe(403);
+      });
+
+      it('is idempotent: the seeded key hash matches the stored record', async () => {
+        mockApiKeyFindUnique.mockResolvedValue({
+          id: 'seeded-admin-key',
+          name: 'Admin Key',
+          ownerId: 'admin@example.com',
+          keyHash: hashKey(TEST_ADMIN_API_KEY),
+          keyPrefix: TEST_ADMIN_API_KEY.slice(0, KEY_PREFIX.length + 8),
+          scopes: ['read', 'write'],
+          expiresAt: null,
+          revokedAt: null,
+          createdAt: new Date(),
+        });
+
+        const res = await request(app)
+          .get('/auth/api-keys')
+          .set('Authorization', `Bearer ${TEST_ADMIN_API_KEY}`)
+          .query({ owner_id: 'admin@example.com' });
+
+        expect(res.statusCode).not.toBe(401);
+        expect(mockApiKeyFindUnique).toHaveBeenCalled();
+      });
+    });
+  });
 });

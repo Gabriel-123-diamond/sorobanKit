@@ -7,6 +7,27 @@
  * non-negative value before deriving `totalPages`.
  */
 
+/**
+ * Bounds a numeric value to the inclusive range [min, max].
+ *
+ * Non-numeric inputs (including `NaN`) fall back to `min`. String values are
+ * coerced to numbers so callers passing query-string params get sane results.
+ *
+ * @param {number|string} value - The value to clamp.
+ * @param {number} min - Lower bound (inclusive).
+ * @param {number} max - Upper bound (inclusive).
+ * @returns {number} The clamped value, always within [min, max].
+ */
+function clamp(value, min, max) {
+  const numeric = typeof value === 'string' ? Number(value) : value;
+
+  if (!Number.isFinite(numeric)) {
+    return min;
+  }
+
+  return Math.min(Math.max(numeric, min), max);
+}
+
 function paginate({ page = 1, pageSize = 10, total = 0 } = {}) {
   const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
   const safePageSize =
@@ -31,4 +52,4 @@ function paginate({ page = 1, pageSize = 10, total = 0 } = {}) {
   };
 }
 
-module.exports = { paginate };
+module.exports = { paginate, clamp };

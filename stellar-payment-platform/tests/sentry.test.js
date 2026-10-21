@@ -93,3 +93,52 @@ describe('Sentry error reporting', () => {
     expect(mockSetupExpressErrorHandler).not.toHaveBeenCalled();
   });
 });
+
+describe('Logger PII sanitisation', () => {
+  const ORIGINAL_ENV = process.env;
+  // 56-character Stellar public key: G + 55 uppercase alphanumeric chars.
+  const STELLAR_ADDRESS = 'GABC1234' + 'A'.repeat(44) + '5678';
+  const TRUNCATED_ADDRESS = 'GABC1234...5678';
+
+  let writeSpy;
+
+  beforeEach(() => {
+    jest.resetModules();
+    process.env = { ...ORIGINAL_ENV };
+    process.env.NODE_ENV = 'production';
+    writeSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    writeSpy.mockRestore();
+  });
+
+  afterAll(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  const readWrittenOutput = () =>
+    writeSpy.mock.calls.map((call) => String(call[0])).join('');
+
+  test('truncates Stellar addresses at debug level', () => {
+    process.env.LOG_LEVEL = 'debug';
+
+    const logger = require('../src/logger');
+    logger.debug(`Processing payment for ${STELLAR_ADDRESS}`);
+
+    const output = readWrittenOutput();
+    expect(output).toContain(TRUNCATED_ADDRESS);
+    expect(output).not.toContain(STELLAR_ADDRESS);
+  });
+
+  test('preserves full Stellar addresses at info level', () => {
+    process.env.LOG_LEVEL = 'info';
+
+    const logger = require('../src/logger');
+    logger.info(`Processing payment for ${STELLAR_ADDRESS}`);
+
+    const output = readWrittenOutput();
+    expect(output).toContain(STELLAR_ADDRESS);
+    expect(output).not.toContain(TRUNCATED_ADDRESS);
+  });
+});

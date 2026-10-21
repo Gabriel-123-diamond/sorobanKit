@@ -56,6 +56,7 @@ const express = require('express');
 const { app } = require('../server');
 const exportRoutes = require('../src/routes/v1/exportRoutes');
 const { COLUMNS, escapeField, normalize } = exportRoutes;
+const logger = require('../src/logger');
 
 /**
  * Mounts the router alone with res.write counted, so a test can tell an
@@ -76,7 +77,18 @@ const countingApp = (writes) => {
 };
 
 describe('GET /transactions/export', () => {
+  const originalMaxPages = process.env.EXPORT_MAX_PAGES;
+
   beforeEach(() => jest.clearAllMocks());
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    if (originalMaxPages === undefined) {
+      delete process.env.EXPORT_MAX_PAGES;
+    } else {
+      process.env.EXPORT_MAX_PAGES = originalMaxPages;
+    }
+  });
 
   describe('response framing', () => {
     test('streams CSV with download headers', async () => {
@@ -186,6 +198,63 @@ describe('GET /transactions/export', () => {
 
       // Header plus two full pages, and no third page.
       expect(res.text.trim().split('\r\n')).toHaveLength(401);
+    });
+
+    test('truncates at EXPORT_MAX_PAGES, warns, and closes with a complete CSV row', async () => {
+      const MAX_PAGES = 2;
+      const PAGE_SIZE = 200;
+      const full = (page) =>
+        Array.from({ length: PAGE_SIZE }, (_, i) => record(page * PAGE_SIZE + i));
+      // Horizon has one more page than the cap allows.
+      const chain = mockPages(
+        Array.from({ length: MAX_PAGES + 1 }, (_, page) => full(page)),
+      );
+
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+      process.env.EXPORT_MAX_PAGES = String(MAX_PAGES);
+      jest.resetModules();
+      const cappedRoutes = require('../src/routes/v1/exportRoutes');
+      const capped = express();
+      capped.use('/', cappedRoutes);
+
+      const res = await request(capped).get(`/transactions/export?address=${ADDRESS}`);
+
+      // (a) The stream stops after exactly EXPORT_MAX_PAGES pages.
+      const lines = res.text.split('\r\n');
+      // Trailing \r\n yields a final empty element; drop it.
+      expect(lines[lines.length - 1]).toBe('');
+      const rows = lines.slice(0, -1);
+      expect(rows).toHaveLength(1 + MAX_PAGES * PAGE_SIZE);
+      expect(rows[0]).toBe(COLUMNS.join(','));
+      // The last row is a complete record from the final allowed page.
+      expect(rows[rows.length - 1]).toContain(`id-${MAX_PAGES * PAGE_SIZE - 1}`);
+      // The first record of the un-fetched page never appears.
+      expect(res.text).not.toContain(`id-${MAX_PAGES * PAGE_SIZE},`);
+
+      // (b) A truncation warning was emitted mentioning the cap.
+      expect(warnSpy).toHaveBeenCalled();
+      const truncationCall = warnSpy.mock.calls.find((args) =>
+        args.some(
+          (arg) =>
+            typeof arg === 'string' &&
+            /truncat/i.test(arg) &&
+            arg.includes(String(MAX_PAGES)),
+        ),
+      );
+      expect(truncationCall).toBeDefined();
+
+      // (c) The response is a valid, complete CSV body (no partial row).
+      expect(res.status).toBe(200);
+      expect(res.text.endsWith('\r\n')).toBe(true);
+      expect(res.text).not.toMatch(/[^\r]\n/);
+      // Every row has the same number of columns as the header.
+      const columnCount = COLUMNS.length;
+      for (const row of rows) {
+        expect(row.split(',').length).toBeGreaterThanOrEqual(columnCount);
+      }
+
+      warnSpy.mockRestore();
+      delete process.env.EXPORT_MAX_PAGES;
     });
   });
 

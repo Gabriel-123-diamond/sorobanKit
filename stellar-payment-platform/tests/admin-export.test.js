@@ -175,6 +175,72 @@ describe('GET /admin/export', () => {
     expect(res.status).toBe(400);
   });
 
+  it('rejects future startDate after past endDate with 400 and INVALID_INPUT', async () => {
+    const res = await request(app)
+      .get('/api/v1/admin/export?startDate=2099-01-01&endDate=2000-01-01')
+      .set('x-api-key', 'test-admin-key');
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_INPUT');
+    expect(mockFindMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects endDate before 1970-01-01 with 400 and INVALID_INPUT', async () => {
+    const res = await request(app)
+      .get('/api/v1/admin/export?endDate=1969-12-31')
+      .set('x-api-key', 'test-admin-key');
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_INPUT');
+    expect(mockFindMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects startDate after 2100-01-01 with 400 and INVALID_INPUT', async () => {
+    const res = await request(app)
+      .get('/api/v1/admin/export?startDate=2100-01-02')
+      .set('x-api-key', 'test-admin-key');
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_INPUT');
+    expect(mockFindMany).not.toHaveBeenCalled();
+  });
+
+  it('streams all records from startDate forward when no endDate is given', async () => {
+    mockFindMany.mockResolvedValueOnce([makeRecord(1)]).mockResolvedValueOnce([]);
+
+    const res = await request(app)
+      .get('/api/v1/admin/export?startDate=2025-01-01')
+      .set('x-api-key', 'test-admin-key');
+
+    expect(res.status).toBe(200);
+    expect(res.text).toMatch(/txn-1/);
+    expect(mockFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          createdAt: expect.objectContaining({
+            gte: new Date('2025-01-01'),
+          }),
+        }),
+      }),
+    );
+    const firstWhere = mockFindMany.mock.calls[0][0].where.createdAt;
+    expect(firstWhere.lte).toBeUndefined();
+  });
+
+  it('streams records for a valid date range', async () => {
+    mockFindMany.mockResolvedValueOnce([makeRecord(1)]).mockResolvedValueOnce([]);
+
+    const res = await request(app)
+      .get('/api/v1/admin/export?startDate=2026-01-01&endDate=2026-01-31')
+      .set('x-api-key', 'test-admin-key');
+
+    expect(res.status).toBe(200);
+    expect(res.text).toMatch(/txn-1/);
+    const firstWhere = mockFindMany.mock.calls[0][0].where.createdAt;
+    expect(firstWhere.gte).toEqual(new Date('2026-01-01'));
+    expect(firstWhere.lte).toEqual(new Date('2026-01-31'));
+  });
+
   it('handles multiple pages correctly', async () => {
     // First page: 500 records; second page: 2 records; third page: empty.
     const page1 = Array.from({ length: 500 }, (_, i) => makeRecord(i));

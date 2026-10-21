@@ -176,12 +176,15 @@ function RegistrationPage({
       // Check if it's the specific LOBSTR unsupported error
       if (err.message && err.message.includes("signMessage")) {
         setStatusMessage(
-          "LOBSTR does not support registration signatures. Please click 'Back to dashboard' to skip this step, or connect with Freighter.", 
+          "LOBSTR does not support registration signatures. Please click 'Back to dashboard' to skip this step, or connect with Freighter.",
           "error"
         );
       } else {
-        // Handle all other normal errors
-        setStatusMessage(err.message || "Signature request cancelled.", "error");
+        // Signing was cancelled or rejected — nothing was submitted to the network
+        setStatusMessage(
+          "Transaction signing was cancelled or failed — no transaction was submitted.",
+          "error"
+        );
       }
       setIsSubmitting(false);
       return;

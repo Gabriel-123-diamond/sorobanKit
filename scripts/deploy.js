@@ -60,6 +60,7 @@ const DEFAULT_OPTIMIZED_WASM_PATH = path.join(
   'release',
   'payment_router.optimized.wasm'
 );
+const WASM_HASH_MANIFEST_PATH = path.join(CONTRACT_DIR, 'wasm.sha256');
 
 // ── WASM Hash Verification ───────────────────────────────────────────────────
 
@@ -150,6 +151,92 @@ const verifyWasmHash = async (wasmPath, uploadedHash, network, options = {}) => 
   return true;
 };
 
+/**
+ * Reads the expected WASM hash from the committed manifest file.
+ * Tolerates trailing whitespace and a trailing filename (sha256sum output).
+ *
+ * @param {string} [manifestPath]
+ * @returns {string|null} Lowercase hex-encoded expected hash, or null if unavailable.
+ */
+const readExpectedWasmHash = (manifestPath = WASM_HASH_MANIFEST_PATH) => {
+  if (!fs.existsSync(manifestPath)) {
+    return null;
+  }
+
+  const content = fs.readFileSync(manifestPath, 'utf8').trim();
+  if (!content) {
+    return null;
+  }
+
+  // Support both "<hash>" and "<hash>  <filename>" (sha256sum) formats.
+  const match = content.match(/^([a-fA-F0-9]{64})\b/);
+  return match ? match[1].toLowerCase() : null;
+};
+
+/**
+ * Writes the freshly computed WASM hash to the manifest file.
+ *
+ * @param {string} wasmHash - Lowercase hex-encoded SHA-256 digest.
+ * @param {string} [manifestPath]
+ * @returns {boolean} True when written.
+ */
+const writeExpectedWasmHash = (wasmHash, manifestPath = WASM_HASH_MANIFEST_PATH) => {
+  try {
+    fs.writeFileSync(manifestPath, `${wasmHash}\n`, 'utf8');
+    return true;
+  } catch (err) {
+    console.warn(`[deploy] Could not write WASM hash manifest ${manifestPath}:`, err.message);
+    return false;
+  }
+};
+
+/**
+ * Verifies the local WASM file's SHA-256 against the committed manifest before upload.
+ * Aborts with a non-zero exit code on mismatch unless skipHashCheck is set.
+ *
+ * @param {string} wasmPath - Local .wasm file path.
+ * @param {object} [options]
+ * @returns {boolean} True when the hash matches (or the check is skipped).
+ */
+const verifyLocalWasmHash = (wasmPath, options = {}) => {
+  if (!wasmPath || !fs.existsSync(wasmPath)) {
+    console.error(`❌ WASM file not found: ${wasmPath}`);
+    if (!options.skipHashCheck) {
+      process.exit(1);
+    }
+    return false;
+  }
+
+  const actualHash = computeLocalWasmHash(wasmPath);
+  const expectedHash = readExpectedWasmHash(options.hashManifestPath);
+
+  if (options.skipHashCheck) {
+    console.warn('⚠️  --skip-hash-check enabled: skipping pre-deployment WASM hash verification.');
+    console.warn(`   Actual (local) hash: ${actualHash}`);
+    return true;
+  }
+
+  if (!expectedHash) {
+    console.error(`❌ Expected WASM hash manifest missing or invalid: ${options.hashManifestPath || WASM_HASH_MANIFEST_PATH}`);
+    console.error('   Run a clean build to generate it, or pass --skip-hash-check to bypass.');
+    process.exit(1);
+  }
+
+  console.log(`🔎 Expected WASM hash (manifest): ${expectedHash}`);
+  console.log(`🔎 Actual WASM hash (local):     ${actualHash}`);
+
+  if (expectedHash !== actualHash) {
+    console.error('❌ WASM hash mismatch: the compiled WASM does not match the committed manifest.');
+    console.error(`   Expected: ${expectedHash}`);
+    console.error(`   Actual:   ${actualHash}`);
+    console.error('   Aborting deployment. Pass --skip-hash-check to bypass (not recommended).');
+    process.exit(1);
+  }
+
+  console.log('✅ Pre-deployment WASM hash verified against manifest.');
+  return true;
+};
+
 // ── CLI Argument Parser ──────────────────────────────────────────────────────
 
 /**
@@ -224,7 +311,7 @@ const parseArgs = (argv = process.argv.slice(2)) => {
 
   if (positional.length > 0) {
     const cmd = positional[0].toLowerCase();
-    if (['build', 'deploy', 'upgrade', 'init', 'status'].includes(cmd)) {
+    if (['build', 'deploy', 'upgrade', 'init', 'status', 'verify-hash'].includes(cmd)) {
       options.command = cmd;
     }
     if (positional[1] && !options.contractId) {
@@ -547,6 +634,7 @@ Usage:
 
 Commands:
   build                 Compile and optimize the contract WASM
+  verify-hash           Verify the compiled WASM hash against payment_router/wasm.sha256
   deploy                Compile, deploy, and initialize the contract
   upgrade               Upgrade an existing contract
   init                  Initialize an existing contract
@@ -564,6 +652,7 @@ Options:
       --wasm <path>     Use a pre-built WASM file
       --dry-run         Simulate the workflow without RPC calls or on-chain transactions
       --skip-build      Skip WASM compilation
+      --skip-hash-check Bypass the pre-deployment WASM hash verification
       --env-file <path> Additional .env file to update
   -h, --help            Show this help
   -v, --version         Show version
@@ -599,7 +688,12 @@ const main = () => {
 
   let wasmPath = options.wasmPath;
 
-  if (options.command === 'build' || options.command === 'deploy' || options.command === 'upgrade') {
+  if (
+    options.command === 'build' ||
+    options.command === 'deploy' ||
+    options.command === 'upgrade' ||
+    options.command === 'verify-hash'
+  ) {
     if (!options.skipBuild) {
       wasmPath = compileAndOptimizeWasm(options);
     } else if (!wasmPath) {
@@ -608,11 +702,23 @@ const main = () => {
   }
 
   if (options.command === 'build') {
+    if (wasmPath && fs.existsSync(wasmPath)) {
+      const freshHash = computeLocalWasmHash(wasmPath);
+      if (writeExpectedWasmHash(freshHash)) {
+        console.log(`✅ Updated WASM hash manifest: ${WASM_HASH_MANIFEST_PATH}`);
+      }
+    }
     console.log(`✅ Build complete: ${wasmPath}`);
     return;
   }
 
+  if (options.command === 'verify-hash') {
+    verifyLocalWasmHash(wasmPath, options);
+    return;
+  }
+
   if (options.command === 'deploy') {
+    verifyLocalWasmHash(wasmPath, options);
     const contractId = deployContract(options, wasmPath);
     if (options.dryRun) {
       logDryRun('initialize contract after deploy');
@@ -668,6 +774,10 @@ module.exports = {
   setEnvVariable,
   updateAllConfigs,
   compileAndOptimizeWasm,
+  computeLocalWasmHash,
+  readExpectedWasmHash,
+  writeExpectedWasmHash,
+  verifyLocalWasmHash,
   deployContract,
   initializeContract,
   upgradeContract,

@@ -113,6 +113,20 @@ describe('sendWebhook — timestamp-prefixed HMAC signature (issue #14)', () => 
     expect(opts.headers['X-Stellar-Tags-Signature']).toBe(expectedSig);
   });
 
+  test('every delivery includes both X-Webhook-Signature and X-Stellar-Tags-Signature headers', async () => {
+    global.fetch.mockResolvedValue({ ok: true });
+    const { sendWebhook } = require('../src/webhookWorker');
+
+    await sendWebhook('https://merchant.example.com/hook', { event: 'payment.received' }, 'secret');
+
+    const [, opts] = global.fetch.mock.calls[0];
+    expect(opts.headers).toHaveProperty('X-Webhook-Signature');
+    expect(opts.headers).toHaveProperty('X-Stellar-Tags-Signature');
+    expect(typeof opts.headers['X-Webhook-Signature']).toBe('string');
+    expect(opts.headers['X-Webhook-Signature']).not.toHaveLength(0);
+    expect(opts.headers['X-Stellar-Tags-Signature']).toBe(opts.headers['X-Webhook-Signature']);
+  });
+
   test('signature computed over raw body alone no longer matches (guards against regression)', async () => {
     global.fetch.mockResolvedValue({ ok: true });
     const { sendWebhook } = require('../src/webhookWorker');

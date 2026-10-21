@@ -24,6 +24,8 @@ function auditLog(action) {
       prisma.auditLog
         .create({ data: entry })
         .catch((err) => {
+          // console.error is the single allowed exception to the backend
+          // `no-console` rule (see eslint.config.mjs) for top-level catch blocks.
           console.error('Failed to write audit log entry:', err);
         });
     });

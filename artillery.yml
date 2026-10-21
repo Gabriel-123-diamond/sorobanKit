@@ -29,6 +29,11 @@ scenarios:
           qs:
             q: "alice*localhost"
             type: "name"
+  - name: "Health check load"
+    weight: 1
+    flow:
+      - get:
+          url: "/health"
   - name: "Admin routing stats load"
     weight: 1
     flow:
@@ -41,5 +46,12 @@ scenarios:
     flow:
       - get:
           url: "/admin/audit-logs"
+          headers:
+            X-Api-Key: "{{ apiKey }}"
+  - name: "Admin transactions export load"
+    weight: 1
+    flow:
+      - get:
+          url: "/transactions/export"
           headers:
             X-Api-Key: "{{ apiKey }}"
