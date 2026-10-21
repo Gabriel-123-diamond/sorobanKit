@@ -10,6 +10,8 @@ const {
   verifyEmailConfirmBodySchema,
   adminBlockBodySchema,
   adminRoutingStatsQuerySchema,
+  webhookBodySchema,
+  webhookQuerySchema,
 } = require('../src/schemas');
 
 const messagesFor = (schema, input) => {
@@ -64,6 +66,22 @@ describe('request schemas', () => {
     test('trims surrounding whitespace', () => {
       const parsed = registerBodySchema.parse({ username: '  alice123  ', address: '  GABC  ' });
       expect(parsed).toMatchObject({ username: 'alice123', address: 'GABC' });
+    });
+
+    test('normalises username to lowercase', () => {
+      const parsed = registerBodySchema.parse({ username: 'Alice123', address: 'GABC' });
+      expect(parsed.username).toBe('alice123');
+    });
+
+    test('normalises mixed-case username to lowercase', () => {
+      const parsed = registerBodySchema.parse({ username: 'ALICE', address: 'GABC' });
+      expect(parsed.username).toBe('alice');
+    });
+
+    test('Alice and alice map to the same slot after normalisation', () => {
+      const upper = registerBodySchema.parse({ username: 'Alice', address: 'GABC' });
+      const lower = registerBodySchema.parse({ username: 'alice', address: 'GABC' });
+      expect(upper.username).toBe(lower.username);
     });
 
     test('keeps unrecognised fields rather than silently dropping them', () => {
@@ -177,6 +195,70 @@ describe('request schemas', () => {
     test('falls back to desc for an unknown order', () => {
       expect(accountPaymentsQuerySchema.parse({ order: 'sideways' }).order).toBe('desc');
       expect(accountPaymentsQuerySchema.parse({ order: 'asc' }).order).toBe('asc');
+    });
+  });
+
+  describe('webhookBodySchema', () => {
+    const valid = { url: 'https://example.com/webhooks/stellar' };
+
+    test('accepts a valid HTTPS URL', () => {
+      expect(webhookBodySchema.safeParse(valid).success).toBe(true);
+    });
+
+    test('rejects a missing url field', () => {
+      const messages = messagesFor(webhookBodySchema, {});
+      expect(messages).not.toBeNull();
+      expect(messages.some((message) => message.startsWith('url:'))).toBe(true);
+    });
+
+    test('rejects a non-HTTPS URL', () => {
+      const messages = messagesFor(webhookBodySchema, { url: 'http://example.com/webhooks' });
+      expect(messages).not.toBeNull();
+      expect(messages.some((message) => message.startsWith('url:'))).toBe(true);
+    });
+
+    test('rejects a URL longer than the maximum length', () => {
+      const longUrl = `https://example.com/${'a'.repeat(2048)}`;
+      const messages = messagesFor(webhookBodySchema, { url: longUrl });
+      expect(messages).not.toBeNull();
+      expect(messages.some((message) => message.startsWith('url:'))).toBe(true);
+    });
+
+    test('rejects an invalid event type', () => {
+      const messages = messagesFor(webhookBodySchema, { ...valid, events: ['not_a_real_event'] });
+      expect(messages).not.toBeNull();
+      expect(messages.some((message) => message.startsWith('events'))).toBe(true);
+    });
+
+    test('accepts a valid event type', () => {
+      expect(webhookBodySchema.safeParse({ ...valid, events: ['payment.received'] }).success).toBe(true);
+    });
+  });
+
+  describe('webhookQuerySchema', () => {
+    test('coerces numeric string pagination parameters', () => {
+      expect(webhookQuerySchema.parse({ page: '3', limit: '5' })).toMatchObject({ page: 3, limit: 5 });
+    });
+
+    test('defaults a missing page to 1', () => {
+      expect(webhookQuerySchema.parse({})).toMatchObject({ page: 1 });
+    });
+
+    test('defaults a missing limit to the documented default', () => {
+      const parsed = webhookQuerySchema.parse({});
+      expect(typeof parsed.limit).toBe('number');
+      expect(parsed.limit).toBeGreaterThanOrEqual(1);
+      expect(parsed.limit).toBeLessThanOrEqual(100);
+    });
+
+    test.each([
+      ['clamps limit above the maximum', { limit: '1000' }, { limit: 100 }],
+      ['clamps limit below the minimum', { limit: '-5' }, { limit: 1 }],
+      ['clamps limit at exactly 0', { limit: '0' }, { limit: 1 }],
+      ['clamps page below the minimum', { page: '0' }, { page: 1 }],
+      ['clamps page at -1', { page: '-1' }, { page: 1 }],
+    ])('%s', (_label, input, expected) => {
+      expect(webhookQuerySchema.parse(input)).toMatchObject(expected);
     });
   });
 

@@ -101,6 +101,21 @@ will not know which services it is meant to remove:
 docker compose --profile dev down
 ```
 
+The `dev` PostgreSQL service stores its data in the named volume
+`postgres_dev_data` (mounted at `/var/lib/postgresql/data`), so rows survive
+container restarts and `down`/`up` cycles — no need to re-run
+`npm run db:seed` every session. The `test` profile database deliberately has
+no volume, so each test run starts from a clean slate.
+
+To wipe the dev database and start fresh, remove the volume while the stack is
+stopped:
+
+```bash
+docker compose --profile dev down
+docker volume rm postgres_dev_data
+docker compose --profile dev up -d
+```
+
 The `integration` profile pulls `stellar/quickstart`, a multi-gigabyte image
 used only by the Soroban contract tests in `tests/integration/`. It is kept
 out of `test` so the API tests do not drag it in.
@@ -229,6 +244,29 @@ cd payment_router
 cargo build
 ```
 
+#### WASM hash verification
+
+`payment_router/wasm.sha256` is a committed manifest holding the expected
+SHA-256 of the compiled contract WASM. It is updated automatically after a
+clean build, so an intentional release only needs the regenerated file
+committed alongside the contract change.
+
+Before uploading the WASM, `scripts/deploy.js` recomputes the SHA-256 of the
+compiled artifact and compares it against the manifest. If they differ, the
+deployment aborts with a clear error, which prevents a corrupted or tampered
+WASM from reaching mainnet. Pass `--skip-hash-check` to bypass the check — a
+warning is logged when you do:
+
+```bash
+./scripts/deploy_contract.sh deploy --network testnet --skip-hash-check
+```
+
+To run the check on its own, without deploying:
+
+```bash
+npm run deploy:verify-hash
+```
+
 ### Contract TypeScript bindings
 
 The TypeScript client for the `payment_router` contract lives in
@@ -331,6 +369,22 @@ Both files rotate **daily and whenever they pass 20MB**, older files are gzipped
 anything beyond the retention window is deleted, so logs cannot exhaust the disk. A
 human-readable copy is also printed to the console (silenced when `NODE_ENV=test`, which
 also disables file output so test runs leave no logs behind).
+
+### PII in debug logs
+
+Stellar public keys are PII, so at `LOG_LEVEL=debug` the logger truncates any
+G-address (a string matching the Stellar public key format, `G` followed by 55
+uppercase alphanumerics) to its first 8 and last 4 characters before writing:
+
+```text
+GABC1234...5678
+```
+
+This keeps debug output useful for tracing without persisting full addresses to
+rotating log files or a log aggregator. At `info` level and above keys are logged
+in full, since those records are needed for audit purposes. The truncation is a
+Winston format applied only to debug-level records; memo text and usernames are
+not sanitised.
 
 ## Error responses
 
@@ -705,5 +759,5 @@ See [LICENSE](LICENSE).
 <!-- handsoff-issue-67 -->
 - #67: Soroban contract does not enforce a minimum payment amount (allows amount=0)
 
-<!-- handsoff-issue-235 -->
-- #235: [#68] Grafana dashboard JSON uses hardcoded datasource UID that breaks on import
+<!-- handsoff-issue-229 -->
+- #229: [#62] `RegistrationPage.jsx` does not debounce the username availability check

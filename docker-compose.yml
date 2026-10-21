@@ -14,6 +14,11 @@
 # test suite, etc.) without exposing them to the local network — important on
 # shared CI machines and developer laptops that may be on untrusted networks.
 
+# Image pinning policy: every base image below is pinned to an exact patch
+# version (never a floating tag like `latest` or a bare major/minor) so that
+# every developer and CI run gets byte-identical images. Bumping a pin is done
+# through a Dependabot/Renovate PR, which keeps the change reviewable and
+# reproducible. Do not replace these with floating tags.
 services:
   # ── dev ────────────────────────────────────────────────────────────────────
   postgres:
@@ -27,7 +32,10 @@ services:
       # 127.0.0.1 only: reachable from the host, not from the network.
       - "127.0.0.1:5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Named volume so seed and manual test data survive `docker compose down`
+      # and the next `up`. Reset to a clean database with:
+      #   docker volume rm postgres_dev_data
+      - postgres_dev_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -36,7 +44,7 @@ services:
 
   redis:
     profiles: ["dev", "full"]
-    image: redis:7-alpine
+    image: redis:7.4.2-alpine
     ports:
       - "6379:6379"
     healthcheck:
@@ -141,7 +149,7 @@ services:
   # because it pulls a multi-gigabyte image the API tests never touch.
   stellar-standalone:
     profiles: ["integration"]
-    image: stellar/quickstart:latest
+    image: stellar/quickstart:v429
     command: [
       "--standalone",
       "--enable-soroban-rpc",
@@ -160,5 +168,6 @@ services:
       start_period: 30s
 
 volumes:
-  pgdata:
+  # Dev-profile Postgres data. Persists across down/up; remove it to start fresh.
+  postgres_dev_data:
   backendlogs:
