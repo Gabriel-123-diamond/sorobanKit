@@ -118,8 +118,19 @@ services:
     environment:
       PORT: "5001"
       DATABASE_URL: postgresql://postgres:postgres@postgres-test:5432/stellar_tags_test?schema=public
+      # The seed script is idempotent: it upserts the same API keys on every
+      # run, so the active key below is stable across restarts and re-seeds.
+      # Tests read this to make authenticated requests.
+      TEST_ADMIN_API_KEY: test-admin-api-key
     ports:
       - "5001:5001"
+    # Migrate, then seed (idempotent), then start the server. The seed runs
+    # after migrations so the API key tables exist, and re-running it produces
+    # the same keys rather than duplicates.
+    command: >
+      sh -c "npx prisma migrate deploy &&
+             npm run db:seed &&
+             npm start"
     depends_on:
       postgres-test:
         condition: service_healthy
