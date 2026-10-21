@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Keep pinned Docker base images in docker-compose.yml up to date.
+  # See the pinning policy comment in docker-compose.yml for rationale.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(docker)"
+    labels:
+      - "dependencies"
+      - "infra"
+    reviewers:
+      - "maintainers"
+    # Group patch/minor bumps so a single PR keeps the pins current.
+    groups:
+      docker-base-images:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+</parameter>

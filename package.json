@@ -11,7 +11,8 @@
     "test:integration": "bash tests/integration/run.sh",
     "contract:build": "node scripts/deploy.js build",
     "contract:deploy": "node scripts/deploy.js deploy",
-    "contract:upgrade": "node scripts/deploy.js upgrade"
+    "contract:upgrade": "node scripts/deploy.js upgrade",
+    "deploy:verify-hash": "node scripts/deploy.js verify-hash"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
