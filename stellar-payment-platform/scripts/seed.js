@@ -247,6 +247,9 @@ const buildApiKeys = () => {
   ].slice(0, API_KEY_COUNT);
 
   return specs.map((spec, index) => {
+    // Derived from the fixed seed, so every run produces the same raw key and
+    // the same hash. That makes the upsert below idempotent: a re-run updates
+    // the existing row instead of minting a new key.
     const rawKey = API_KEY_PREFIX + digest(`api-key:${spec.label}`).toString('hex');
 
     return {
@@ -265,6 +268,15 @@ const buildApiKeys = () => {
       },
     };
   });
+};
+
+/**
+ * The active (non-revoked) seed key, or null if the seed defines none. Used to
+ * export TEST_ADMIN_API_KEY for the test suite.
+ */
+const activeApiKey = (apiKeys = buildApiKeys()) => {
+  const active = apiKeys.find(({ record }) => !record.revokedAt);
+  return active ? active.rawKey : null;
 };
 
 // ---------------------------------------------------------------------------
@@ -342,11 +354,13 @@ const writeSeedData = async (prisma, { users, webhooks, paymentIntents, apiKeys 
   }
 
   for (const { record } of apiKeys) {
-    const { keyHash, ...rest } = record;
+    // Upsert on the stable id (not the hash) so a re-run with the same derived
+    // key updates the existing row rather than inserting a duplicate.
+    const { id, keyHash, ...rest } = record;
     await prisma.apiKey.upsert({
-      where: { keyHash },
-      create: { keyHash, ...rest },
-      update: rest,
+      where: { id },
+      create: { id, keyHash, ...rest },
+      update: { keyHash, ...rest },
     });
   }
 };
@@ -398,6 +412,15 @@ const seedDatabase = async ({ reset = false, dryRun = false } = {}) => {
       const state = record.revokedAt ? 'revoked' : 'active';
       logger.info(`API key (${state}) ${record.name}: ${rawKey}`);
     }
+
+    // Machine-readable line so CI / test startup can capture the active key:
+    //   TEST_ADMIN_API_KEY=$(npm run db:seed --silent | sed -n 's/^TEST_ADMIN_API_KEY=//p')
+    const activeKey = activeApiKey(data.apiKeys);
+    if (activeKey) {
+      // Written to stdout (not the logger) so it survives --silent and is easy
+      // to grep regardless of log formatting.
+      process.stdout.write(`TEST_ADMIN_API_KEY=${activeKey}\n`);
+    }
   } finally {
     await prisma.$disconnect();
   }
@@ -418,6 +441,7 @@ module.exports = {
   buildWebhooks,
   buildPaymentIntents,
   buildApiKeys,
+  activeApiKey,
   resetSeedData,
   writeSeedData,
   assertSeedable,

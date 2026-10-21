@@ -1,0 +1,19 @@
+groups:
+  - name: stellar-tags-db-pool
+    rules:
+      - alert: StellarTagsDBPoolWaiting
+        expr: stellar_tags_db_pool_queries_waiting > 5
+        for: 30s
+        labels:
+          severity: warning
+          service: stellar-tags
+          component: database
+        annotations:
+          summary: "Stellar Tags DB pool saturation: queries waiting for a connection"
+          description: >-
+            The metric stellar_tags_db_pool_queries_waiting has been above 5 for
+            more than 30 seconds (current value: {{ $value }}). This indicates
+            the database connection pool is saturated and queries are queuing
+            for a free connection, which can lead to query timeouts and degraded
+            API latency. Consider increasing the pool size, investigating slow
+            queries, or scaling the database.

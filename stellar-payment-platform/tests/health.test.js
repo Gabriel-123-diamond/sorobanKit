@@ -154,3 +154,66 @@ describe('GET /health', () => {
     jest.resetModules();
   });
 });
+
+// ── X-Correlation-ID header assertions for health endpoint ────────────────────
+
+describe('GET /health — X-Correlation-ID header', () => {
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  let healthApp;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prisma.$queryRaw.mockResolvedValue([{ 1: 1 }]);
+    redisClient = { ping: jest.fn().mockResolvedValue('PONG') };
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    // Mount health routes with the real correlation middleware so the header
+    // is attached by the middleware, not by the health handler itself.
+    const { correlationId } = require('../middleware/correlation');
+    healthApp = express();
+    healthApp.use(correlationId);
+    healthApp.use(healthRoutes(redisClient));
+  });
+
+  test('200 health response includes X-Correlation-ID header', async () => {
+    const res = await request(healthApp).get('/health');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['x-correlation-id']).toBeDefined();
+    expect(res.headers['x-correlation-id']).toMatch(UUID_RE);
+  });
+
+  test('503 health response includes X-Correlation-ID header', async () => {
+    prisma.$queryRaw.mockRejectedValue(new Error('db down'));
+
+    const res = await request(healthApp).get('/health');
+
+    expect(res.status).toBe(503);
+    expect(res.headers['x-correlation-id']).toBeDefined();
+    expect(res.headers['x-correlation-id']).toMatch(UUID_RE);
+  });
+
+  test('echoes back a caller-supplied X-Correlation-ID on 200', async () => {
+    const myId = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+
+    const res = await request(healthApp)
+      .get('/health')
+      .set('X-Correlation-ID', myId);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['x-correlation-id']).toBe(myId);
+  });
+
+  test('echoes back a caller-supplied X-Correlation-ID on 503', async () => {
+    prisma.$queryRaw.mockRejectedValue(new Error('db down'));
+    const myId = 'cccccccc-3333-4333-8333-cccccccccccc';
+
+    const res = await request(healthApp)
+      .get('/health')
+      .set('X-Correlation-ID', myId);
+
+    expect(res.status).toBe(503);
+    expect(res.headers['x-correlation-id']).toBe(myId);
+  });
+});

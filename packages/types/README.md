@@ -1,70 +1,28 @@
-# @stellar-tags/payment-router
+# @refund/types
 
-TypeScript bindings for the `payment-router` Soroban contract.
+Shared TypeScript types and generated Soroban contract bindings for the refund contract.
 
-## Installation
+## Smart Contract
 
-```bash
-npm install @stellar-tags/payment-router
-```
+### `get_refund_balance(user: Address, token: Address) -> i128`
 
-## Usage
+Returns the refund balance for `user` in `token`.
+
+> **Auth required:** `get_refund_balance` now calls `user.require_auth()`. Only the
+> account holder (or a delegated signer) can query their own refund balance. Callers
+> must supply a valid authorization entry for `user`; invoking without auth returns
+> an auth error.
 
 ```ts
-import {
-  Client,
-  ContractError,
-  isContractError,
-  type ErrorVariant,
-} from "@stellar-tags/payment-router";
-
-const client = new Client({ contractId, networkPassphrase, rpcUrl });
-
-try {
-  await client.pay({ /* ... */ });
-} catch (err) {
-  if (isContractError(err)) {
-    // `err` is narrowed to `ContractError`
-    switch (err.variant) {
-      case "Unauthorized":
-        // handle unauthorized
-        break;
-      case "InsufficientBalance":
-        // handle insufficient balance
-        break;
-      default:
-        // exhaustively handled by the union
-        break;
-    }
-  }
-}
+// The generated client requires the `user` auth entry to be present.
+const balance = await contract.get_refund_balance({ user, token });
 ```
 
-## Contract errors
+### `withdraw_refund` / `claim_all_refunds`
 
-The contract's `Error` enum variants are exported as a discriminated union so
-frontend code can type-check errors without `as any` casts:
-
-- `ContractError` — union of all known error variants
-- `ErrorVariant` — string literal union of variant names
-- `isContractError(value)` — type guard narrowing `unknown` to `ContractError`
-
-Each variant carries a `variant` discriminant and a human-readable `message`.
+These already require auth and are unchanged.
 
 ## Regenerating bindings
 
-```bash
-npm run generate:bindings
-```
-
-The generator emits the contract function signatures and the error enum
-variants into `src/index.ts`. Re-run it whenever the contract ABI changes.
-
-## Type checking
-
-```bash
-npx tsc --noEmit
-```
-
-`tsconfig.json` enables `strict` mode; the exported error types are checked as
-part of the package build.
+After contract changes, regenerate the TypeScript bindings so the client
+invocation reflects the current auth requirements.
