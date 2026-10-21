@@ -11,6 +11,15 @@ scenarios:
       - get:
           url: "/health"
       - get:
+          url: "/federation"
+      - get:
           url: "/lookup?search=test"
       - get:
           url: "/users"
+
+  - name: "Authenticated admin export scenario"
+    flow:
+      - get:
+          url: "/transactions/export"
+          headers:
+            x-api-key: "{{ $processEnvironment.ADMIN_API_KEY }}"
