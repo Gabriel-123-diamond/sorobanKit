@@ -253,6 +253,14 @@ const adminExportQuerySchema = z
       .optional(),
   })
   .loose()
+  .refine((value) => !value.endDate || value.endDate >= '1970-01-01', {
+    error: 'endDate must be on or after 1970-01-01',
+    path: ['endDate'],
+  })
+  .refine((value) => !value.startDate || value.startDate <= '2100-01-01', {
+    error: 'startDate must be on or before 2100-01-01',
+    path: ['startDate'],
+  })
   .refine(
     (value) => {
       if (value.startDate && value.endDate) {
