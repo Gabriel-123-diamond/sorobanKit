@@ -55,7 +55,11 @@ ENV NODE_ENV=production
 
 # Create a dedicated unprivileged `node` group/user and run the server as it.
 # /app stays writable for the logs/data dirs the app creates at runtime.
-RUN addgroup --system node && adduser --system --ingroup node node \
+# postgresql-client provides `pg_isready`, which startup.sh polls to wait for
+# the database before running migrations. Only the client is installed (no
+# server), and the apk cache is discarded to keep the layer slim.
+RUN apk add --no-cache postgresql-client \
+	&& addgroup --system node && adduser --system --ingroup node node \
 	&& mkdir -p /app/logs /app/data \
 	&& chown node:node /app /app/logs /app/data
 

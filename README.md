@@ -152,6 +152,17 @@ For a typical local install that becomes, for example:
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/stellar_tags?schema=public"
 ```
 
+The server appends Prisma connection-pool limits to `DATABASE_URL` at startup
+(`src/db.js`), so a constrained host cannot open more connections than
+PostgreSQL allows. Tune them with:
+
+- `DB_POOL_SIZE` - (Optional) Maximum connections in the Prisma pool. Defaults to `10`.
+- `DB_POOL_TIMEOUT` - (Optional) Seconds a query waits for a free connection before failing. Defaults to `30`.
+
+For example, `DB_POOL_SIZE=5` limits the pool to 5 connections. If
+`DATABASE_URL` already contains `connection_limit` or `pool_timeout`, those
+values are left untouched.
+
 The quickest way to get a local database is the dev profile, which also
 brings up Redis:
 
@@ -283,6 +294,8 @@ To ensure a seamless local developer installation requiring zero guesswork, plea
 
 ### Server (`stellar-payment-platform/.env` or exported directly)
 - `DATABASE_URL` - **(Required)** PostgreSQL connection string used by Prisma (see [Database setup](#database-setup)).
+- `DB_POOL_SIZE` - (Optional) Maximum number of connections in the Prisma connection pool, applied as `connection_limit` on `DATABASE_URL`. Defaults to `10`.
+- `DB_POOL_TIMEOUT` - (Optional) Seconds a query waits for a free pooled connection before failing, applied as `pool_timeout` on `DATABASE_URL`. Defaults to `30`.
 - `PORT` - (Optional) The port for the Node.js server to listen on. Defaults to `5000`.
 - `HORIZON_NETWORK` - (Optional) Stellar network for the payment listener: `testnet` (default) or `public`.
 - `STELLAR_TAG_DOMAIN` - (Optional) Extra origin to add to the CORS allow-list.
@@ -589,6 +602,28 @@ rate limiter so a scraper on a fixed interval is never throttled.
 Memory and CPU come from `prom-client`'s default collectors. The pool gauges read
 Prisma's `$metrics` (which requires the `metrics` preview feature in
 `schema.prisma`) and report `0` when it is unavailable.
+
+### Monitoring and alerts
+
+The repository ships Prometheus alerting rules in
+[docs/prometheus-alerts.yml](docs/prometheus-alerts.yml). Load them with your
+scrape config:
+
+```yaml
+rule_files:
+  - /etc/prometheus/docs/prometheus-alerts.yml
+```
+
+| Alert | Expression | For | Meaning |
+| --- | --- | --- | --- |
+| `StellarTagsDBPoolWaiting` | `stellar_tags_db_pool_queries_waiting > 5` | `30s` | Queries are queuing for a free DB connection; the pool is saturated and query timeouts are imminent. |
+
+The alert is annotated with a summary and runbook hint, and carries a
+`severity: warning` label so it can be routed by severity. To create the same
+alert in Grafana instead, follow
+[docs/grafana-alerts.md](docs/grafana-alerts.md), which walks through importing
+the rule and wiring it to a notification channel. The alert panel is also
+embedded in [docs/grafana-dashboard.json](docs/grafana-dashboard.json).
 
 ### Deprecated endpoints
 
