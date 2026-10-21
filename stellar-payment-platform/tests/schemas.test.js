@@ -66,6 +66,22 @@ describe('request schemas', () => {
       expect(parsed).toMatchObject({ username: 'alice123', address: 'GABC' });
     });
 
+    test('normalises username to lowercase', () => {
+      const parsed = registerBodySchema.parse({ username: 'Alice123', address: 'GABC' });
+      expect(parsed.username).toBe('alice123');
+    });
+
+    test('normalises mixed-case username to lowercase', () => {
+      const parsed = registerBodySchema.parse({ username: 'ALICE', address: 'GABC' });
+      expect(parsed.username).toBe('alice');
+    });
+
+    test('Alice and alice map to the same slot after normalisation', () => {
+      const upper = registerBodySchema.parse({ username: 'Alice', address: 'GABC' });
+      const lower = registerBodySchema.parse({ username: 'alice', address: 'GABC' });
+      expect(upper.username).toBe(lower.username);
+    });
+
     test('keeps unrecognised fields rather than silently dropping them', () => {
       const parsed = registerBodySchema.parse({ ...valid, 'Idempotency-Key': 'abc' });
       expect(parsed['Idempotency-Key']).toBe('abc');

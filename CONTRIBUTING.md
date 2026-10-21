@@ -2,6 +2,8 @@
 
 Thanks for your interest in improving Stellar Tags! This guide walks you through the development workflow, conventions, and review process so you can get productive quickly.
 
+> **Security:** Please do not report security vulnerabilities through public issues or pull requests. See [SECURITY.md](SECURITY.md) for our responsible disclosure process.
+
 ## Prerequisites
 
 - **Node.js** 18+ and **npm** (for the frontend)

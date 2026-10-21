@@ -27,7 +27,10 @@ services:
       # 127.0.0.1 only: reachable from the host, not from the network.
       - "127.0.0.1:5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Named volume so seed and manual test data survive `docker compose down`
+      # and the next `up`. Reset to a clean database with:
+      #   docker volume rm postgres_dev_data
+      - postgres_dev_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -149,5 +152,6 @@ services:
       start_period: 30s
 
 volumes:
-  pgdata:
+  # Dev-profile Postgres data. Persists across down/up; remove it to start fresh.
+  postgres_dev_data:
   backendlogs:
