@@ -10,6 +10,10 @@ async function transferAccount(username, oldAddress, newAddress, oldSignature, n
     throw error;
   }
 
+  // Normalise the username to lowercase so lookups are consistent regardless
+  // of the casing the caller supplied (federation addresses are case-insensitive).
+  const normalizedUsername = username.toLowerCase().trim();
+
   if (!oldAddress || !newAddress) {
     const error = new Error('Both oldAddress and newAddress are required');
     error.statusCode = 400;
@@ -30,7 +34,7 @@ async function transferAccount(username, oldAddress, newAddress, oldSignature, n
 
   // 1. Verify old address exists and matches username
   const user = await prisma.user.findUnique({
-    where: { username }
+    where: { username: normalizedUsername }
   });
 
   if (!user) {
@@ -67,11 +71,11 @@ async function transferAccount(username, oldAddress, newAddress, oldSignature, n
 
   // 4. Atomically update the address in Prisma
   const updatedUser = await prisma.user.update({
-    where: { username },
+    where: { username: normalizedUsername },
     data: { address: newAddress },
   });
 
-  logger.info(`Transferred username ${username} from ${oldAddress} to ${newAddress}`);
+  logger.info(`Transferred username ${normalizedUsername} from ${oldAddress} to ${newAddress}`);
 
   // The ETag-based federation cache will automatically be invalidated for both addresses
   // because the underlying DB data has changed. No manual cache purging is needed.

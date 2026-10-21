@@ -20,14 +20,15 @@ router.post('/register', async (req, res, next) => {
 
     const existing = await prisma.account.findUnique({ where: { address } });
     if (existing) {
-      throw new ApiError('ALREADY_EXISTS', 'address is already registered');
+      // Idempotent re-registration: same username+address pair already exists.
+      return res.status(200).json({ ok: true, already_registered: true });
     }
 
     const account = await prisma.account.create({
       data: { address, memo: memo || null },
     });
 
-    res.status(201).json({ address: account.address, memo: account.memo });
+    res.status(201).json({ ok: true, already_registered: false, address: account.address, memo: account.memo });
   } catch (err) {
     next(err);
   }

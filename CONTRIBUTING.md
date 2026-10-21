@@ -76,7 +76,7 @@ cargo test --manifest-path backend/Cargo.toml
 ### Contracts
 
 ```bash
-cargo test --manifest-path contracts/Cargo.toml
+cargo test --manifest-path payment_router/Cargo.toml
 ```
 
 ## Pull Request Conventions
