@@ -44,17 +44,28 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 ```
 <type>(<optional scope>): <short summary>
 
-<optional body>
+### All workspaces at once
 
-<optional footer>
+Run every test suite in sequence from the repo root with a single command:
+
+```bash
+npm run test:all
+```
+
+This runs the frontend tests, then the backend tests, then the Soroban contract tests (`cargo test`). The command exits non-zero as soon as any suite fails, so a red result always tells you which workspace broke. CI runs this same command in the `test-all` job.
+
+### Frontend
+
+```bash
+cd payment-dashboard
+npm test
 ```
 
 Common types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
 
-Example:
-
-```
-feat(tags): add pagination to tag listing
+```bash
+cd stellar-payment-platform
+npm test
 ```
 
 ## Code Style
@@ -84,10 +95,7 @@ The hook is intentionally limited to a fast subset of tests so it completes in u
 All changes should include or update tests where appropriate. Run the full test suite before opening a PR:
 
 ```bash
-# Frontend
-npm test
-
-# Backend
+cd payment_router
 cargo test
 ```
 
