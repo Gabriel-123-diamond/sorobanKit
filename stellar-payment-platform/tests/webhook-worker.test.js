@@ -39,7 +39,11 @@ const {
   MAX_WEBHOOK_ATTEMPTS,
   WEBHOOK_BACKOFF_DELAY_MS,
   WEBHOOK_QUEUE_NAME,
+  WEBHOOK_RETRY_BASE_MS,
+  WEBHOOK_RETRY_MAX_MS,
+  WEBHOOK_RETRY_FACTOR,
 } = require('../src/webhookWorker');
+const { exponentialDelay } = require('../src/utils/exponentialDelay');
 
 const webhook = {
   id: 'webhook-1',
@@ -84,6 +88,40 @@ describe('webhook BullMQ delivery', () => {
       }),
     );
     expect(MAX_WEBHOOK_ATTEMPTS).toBe(5);
+  });
+
+  test('retry delay grows exponentially between attempts (issue #175)', () => {
+    const delay1 = exponentialDelay(1, WEBHOOK_RETRY_BASE_MS, WEBHOOK_RETRY_MAX_MS, 0);
+    const delay2 = exponentialDelay(2, WEBHOOK_RETRY_BASE_MS, WEBHOOK_RETRY_MAX_MS, 0);
+    const delay3 = exponentialDelay(3, WEBHOOK_RETRY_BASE_MS, WEBHOOK_RETRY_MAX_MS, 0);
+
+    expect(delay2).toBeGreaterThanOrEqual(delay1 * 2);
+    expect(delay3).toBeGreaterThanOrEqual(delay2 * 2);
+    expect(delay1).toBe(WEBHOOK_RETRY_BASE_MS);
+    expect(delay2).toBe(WEBHOOK_RETRY_BASE_MS * WEBHOOK_RETRY_FACTOR);
+  });
+
+  test('retry delay is capped at WEBHOOK_RETRY_MAX_MS regardless of attempt count (issue #175)', () => {
+    for (const attempt of [10, 25, 100, 1000]) {
+      expect(exponentialDelay(attempt, WEBHOOK_RETRY_BASE_MS, WEBHOOK_RETRY_MAX_MS, 0))
+        .toBe(WEBHOOK_RETRY_MAX_MS);
+    }
+  });
+
+  test('jitter makes concurrent retries non-deterministic (issue #175)', () => {
+    const attempt = 3;
+    const delays = new Set();
+    for (let i = 0; i < 50; i++) {
+      delays.add(exponentialDelay(attempt, WEBHOOK_RETRY_BASE_MS, WEBHOOK_RETRY_MAX_MS, 0.1));
+    }
+    expect(delays.size).toBeGreaterThan(1);
+
+    // Jitter stays within ±10% of the un-jittered delay.
+    const nominal = exponentialDelay(attempt, WEBHOOK_RETRY_BASE_MS, WEBHOOK_RETRY_MAX_MS, 0);
+    for (const delay of delays) {
+      expect(delay).toBeGreaterThanOrEqual(Math.floor(nominal * 0.9));
+      expect(delay).toBeLessThanOrEqual(Math.ceil(nominal * 1.1));
+    }
   });
 
   test('worker throws failed deliveries so BullMQ retries them', async () => {

@@ -129,4 +129,33 @@ describe('transferAccount', () => {
       transferAccount('alice', 'GAPUQZH3WZUXHEMUGZN5ZYU4D4GHCFEMOGUINU6MF345GBD2QXNYYIEQ', VALID_NEW_ADDRESS, 's1', 's2'),
     ).rejects.toMatchObject({ message: 'New signature invalid', statusCode: 401 });
   });
+
+  // ── Username normalisation ────────────────────────────────────────────────────
+
+  it('normalises a mixed-case username to lowercase before the DB lookup', async () => {
+    await transferAccount(
+      'Alice',
+      'GAPUQZH3WZUXHEMUGZN5ZYU4D4GHCFEMOGUINU6MF345GBD2QXNYYIEQ',
+      VALID_NEW_ADDRESS,
+      'sig-old',
+      'sig-new',
+    );
+
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { username: 'alice' } });
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { username: 'alice' } }),
+    );
+  });
+
+  it('normalises an ALL-CAPS username to lowercase before the DB lookup', async () => {
+    await transferAccount(
+      'ALICE',
+      'GAPUQZH3WZUXHEMUGZN5ZYU4D4GHCFEMOGUINU6MF345GBD2QXNYYIEQ',
+      VALID_NEW_ADDRESS,
+      'sig-old',
+      'sig-new',
+    );
+
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { username: 'alice' } });
+  });
 });

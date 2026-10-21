@@ -5,6 +5,18 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
+// Pre-flight check: Prisma and pg both surface an opaque internal error when
+// DATABASE_URL is absent. Catch this early and emit a clear, actionable
+// message so a developer setting up the project for the first time knows
+// exactly what to fix without digging into library internals.
+if (!process.env.DATABASE_URL) {
+  const message =
+    'DATABASE_URL is not set — see README for database setup. ' +
+    'Copy .env.example to .env and set DATABASE_URL to a valid PostgreSQL connection string.';
+  logger.error(message);
+  throw new Error(message);
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: parseInt(process.env.DB_POOL_MAX, 10) || 10,

@@ -301,5 +301,36 @@ describe('Admin Audit Logging System', () => {
         orderBy: { createdAt: 'desc' },
       });
     });
+
+    it('clamps ?limit=10000 to at most 100 rows (schema cap)', async () => {
+      // The schema enforces max(100) via clampedInt, so even if the caller
+      // sends limit=10000 the handler must pass take=100 to the database.
+      mockAuditLogFindMany.mockResolvedValueOnce([]);
+
+      const res = await request(app)
+        .get('/api/v1/admin/audit-logs?limit=10000')
+        .set('x-api-key', 'test-admin-key');
+
+      expect(res.status).toBe(200);
+      // Confirm the DB was called with take capped at 100, not 10000.
+      expect(mockAuditLogFindMany).toHaveBeenCalledWith({
+        take: 100,
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+
+    it('uses default limit of 50 when no limit param is supplied', async () => {
+      mockAuditLogFindMany.mockResolvedValueOnce([]);
+
+      const res = await request(app)
+        .get('/api/v1/admin/audit-logs')
+        .set('x-api-key', 'test-admin-key');
+
+      expect(res.status).toBe(200);
+      expect(mockAuditLogFindMany).toHaveBeenCalledWith({
+        take: 50,
+        orderBy: { createdAt: 'desc' },
+      });
+    });
   });
 });

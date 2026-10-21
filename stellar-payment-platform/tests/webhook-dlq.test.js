@@ -1,6 +1,19 @@
 // Mock node-cron to prevent real cron jobs in tests
 jest.mock('node-cron', () => ({
   schedule: jest.fn(),
+}), { virtual: true });
+
+jest.mock('../src/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  },
+}));
+
+jest.mock('../prismaClient', () => ({
+  prisma: {},
 }));
 
 const webhookWorker = require('../src/webhookWorker');
@@ -196,5 +209,81 @@ describe('replayFromDLQ', () => {
     expect(prisma.webhookDLQ.update).toHaveBeenCalled();
     const updateCall = prisma.webhookDLQ.update.mock.calls[0][0];
     expect(updateCall.data.deliveryAttempts).toBe(3);
+  });
+
+  it('completes the full DLQ replay lifecycle: failure -> DLQ creation -> replay delivery -> marked replayed (#280)', async () => {
+    const dlqStore = new Map();
+    const failingSinceDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    const webhook = {
+      id: 'wh-lifecycle-1',
+      username: 'alice',
+      url: 'https://merchant.example.com/webhooks/payments',
+      secret: 'super-secret-key',
+      failingSince: failingSinceDate,
+    };
+
+    prisma.webhookDLQ.create.mockImplementation(async ({ data }) => {
+      const record = { id: 'dlq-lifecycle-1', ...data };
+      dlqStore.set(record.id, record);
+      return record;
+    });
+    prisma.webhookDLQ.findMany.mockImplementation(async () => Array.from(dlqStore.values()));
+    prisma.webhookDLQ.count.mockImplementation(async () => dlqStore.size);
+    prisma.webhookDLQ.findUnique.mockImplementation(async ({ where }) => dlqStore.get(where.id) || null);
+    prisma.webhookDLQ.update.mockImplementation(async ({ where, data }) => {
+      const current = dlqStore.get(where.id);
+      const updated = { ...current, ...data };
+      dlqStore.set(where.id, updated);
+      return updated;
+    });
+
+    // 1. Trigger initial webhook delivery failure (HTTP 503)
+    global.fetch.mockResolvedValueOnce({ ok: false, status: 503 });
+    await expect(
+      webhookWorker.sendWebhook(webhook.url, { event: 'payment.received' }, webhook.secret),
+    ).rejects.toThrow('Webhook responded with HTTP 503');
+
+    // 2. Move exhausted webhook to DLQ and confirm DLQ entry exists
+    await moveToDLQ(prisma, async () => {}, webhook);
+    const { entries, total } = await listDLQEntries(prisma, async () => [], { username: 'alice' });
+    expect(total).toBe(1);
+    expect(entries[0]).toMatchObject({
+      id: 'dlq-lifecycle-1',
+      webhookId: webhook.id,
+      webhookUrl: webhook.url,
+      username: 'alice',
+      replayed: false,
+    });
+
+    // 3. Mock delivery endpoint to succeed on replay and replay the DLQ entry
+    global.fetch.mockResolvedValueOnce({ ok: true, status: 200 });
+    const replayResult = await replayFromDLQ(prisma, async () => {}, 'dlq-lifecycle-1');
+    expect(replayResult).toEqual({ ok: true });
+
+    // 4. Assert delivery was re-attempted against the exact webhook URL with signed payload
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(global.fetch).toHaveBeenLastCalledWith(
+      webhook.url,
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+          'X-Webhook-Signature': expect.stringMatching(/^[0-9a-f]{64}$/),
+          'X-Webhook-Timestamp': expect.any(String),
+        }),
+        body: entries[0].eventPayload,
+      }),
+    );
+
+    // 5. Assert the DLQ entry is marked as replayed with a timestamp and cannot be replayed twice
+    const updatedEntry = dlqStore.get('dlq-lifecycle-1');
+    expect(updatedEntry.replayed).toBe(true);
+    expect(updatedEntry.replayedAt).toBeInstanceOf(Date);
+
+    const secondReplay = await replayFromDLQ(prisma, async () => {}, 'dlq-lifecycle-1');
+    expect(secondReplay).toEqual({
+      ok: false,
+      error: 'DLQ entry has already been replayed',
+    });
   });
 });

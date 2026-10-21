@@ -141,14 +141,16 @@ def webhook():
 
 ## Verifying in Go
 
+Requires **Go 1.21+**.
+
 ```go
+// Go 1.21+
 package main
 
 import (
     "crypto/hmac"
     "crypto/sha256"
     "encoding/hex"
-    "fmt"
     "io"
     "net/http"
     "strconv"

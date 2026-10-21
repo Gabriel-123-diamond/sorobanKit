@@ -21,9 +21,29 @@
  *                 to. Used in the server-side log message.
  *   documentation  (optional) URL describing the deprecation/migration.
  *                 Surfaces in the `Link` header with rel="deprecation".
+ *   kind           (optional) 'endpoint' (default) for deprecated routes, or
+ *                 'header' for deprecated request/response headers. Header
+ *                 entries are not matched against request paths by the
+ *                 deprecation middleware; they are consumed by the code that
+ *                 emits or inspects the header (e.g. the webhook worker and
+ *                 the webhook signature verification middleware).
+ *   header         (header entries only) Header name the entry describes.
+ *   canonical      (header entries only) Header consumers should use instead.
+ *   removalVersion (header entries only) Release in which the header will be
+ *                 removed.
  */
 
 const DEPRECATIONS = [
+  {
+    kind: 'header',
+    header: 'X-Stellar-Tags-Signature',
+    canonical: 'X-Webhook-Signature',
+    deprecatedSince: '2026-08-29',
+    sunsetDate: '2027-06-30',
+    removalVersion: 'v3.0.0',
+    documentation:
+      'https://docs.stellar-tags.example/deprecations/webhook-signature-header',
+  },
   {
     method: 'GET',
     path: '/api/v1/lookup',

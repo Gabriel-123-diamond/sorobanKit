@@ -100,4 +100,28 @@ describe('validateMemo', () => {
       expect(validateMemo('hash', invalidHash)).toBe('memo of type hash must be a 64-character hex string (32 bytes).');
     });
   });
+
+  describe('non-string memo input validation (#321)', () => {
+    it('returns error if memo is a number', () => {
+      expect(validateMemo('text', 12345)).toBe('memo must be a string.');
+      expect(validateMemo('id', 12345)).toBe('memo must be a string.');
+      expect(validateMemo('hash', 12345)).toBe('memo must be a string.');
+    });
+
+    it('returns error if memo is an object', () => {
+      expect(validateMemo('text', {})).toBe('memo must be a string.');
+      expect(validateMemo('id', { id: '123' })).toBe('memo must be a string.');
+      expect(validateMemo('hash', {})).toBe('memo must be a string.');
+    });
+
+    it('returns error if memo is a boolean', () => {
+      expect(validateMemo('text', true)).toBe('memo must be a string.');
+      expect(validateMemo('id', false)).toBe('memo must be a string.');
+    });
+
+    it('returns error if memo is an array', () => {
+      expect(validateMemo('text', ['hello'])).toBe('memo must be a string.');
+      expect(validateMemo('id', [1, 2, 3])).toBe('memo must be a string.');
+    });
+  });
 });

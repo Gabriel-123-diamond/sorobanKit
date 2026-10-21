@@ -8,6 +8,11 @@ const { logger } = require('./logger');
  */
 const STALE_THRESHOLD_DAYS = 90;
 
+function getWebhookDlqMaxAgeDays() {
+  const configuredDays = Number(process.env.WEBHOOK_DLQ_MAX_AGE_DAYS);
+  return Number.isInteger(configuredDays) && configuredDays > 0 ? configuredDays : 30;
+}
+
 /**
  * A set of "active" Stellar network addresses that should never be fully
  * removed.  In a real deployment this would be populated dynamically (e.g.
@@ -37,6 +42,10 @@ async function runCleanup(prisma) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - STALE_THRESHOLD_DAYS);
 
+  const webhookDlqMaxAgeDays = getWebhookDlqMaxAgeDays();
+  const dlqCutoff = new Date();
+  dlqCutoff.setDate(dlqCutoff.getDate() - webhookDlqMaxAgeDays);
+
   const activeAddresses = [...ACTIVE_NETWORK_ADDRESSES];
 
   // 1. Delete stale rows that are NOT active network addresses.
@@ -57,13 +66,19 @@ async function runCleanup(prisma) {
     data: { flaggedAt: new Date() },
   });
 
+  const dlqPruneResult = await prisma.webhookDLQ.deleteMany({
+    where: { movedAt: { lt: dlqCutoff } },
+  });
+
   const pruned = pruneResult.count;
   const flagged = flagResult.count;
+  const dlqPruned = dlqPruneResult.count;
 
   logger.info('Purge completed', { table: 'User', operation: 'deleteMany', count: pruned });
   logger.info('Purge completed', { table: 'User', operation: 'updateMany', count: flagged });
+  logger.info('[cleanup-cron] Pruned old webhook DLQ entries', { count: dlqPruned });
 
-  return { pruned, flagged };
+  return { pruned, flagged, dlqPruned };
 }
 
 /**
@@ -77,9 +92,9 @@ function scheduleCleanupJob(prisma) {
   cron.schedule('0 0 * * 0', async () => {
     logger.info('[cleanup-cron] Starting stale-account sweep…');
     try {
-      const { pruned, flagged } = await runCleanup(prisma);
-      const total = pruned + flagged;
-      logger.info('[cleanup-cron] Sweep complete', { pruned, flagged, total });
+      const { pruned, flagged, dlqPruned } = await runCleanup(prisma);
+      const total = pruned + flagged + dlqPruned;
+      logger.info('[cleanup-cron] Sweep complete', { pruned, flagged, dlqPruned, total });
     } catch (err) {
       logger.error('[cleanup-cron] Sweep failed:', err.message);
     }

@@ -52,6 +52,13 @@ The script:
 4. Initializes the contract with an admin, treasury, and fee config.
 5. Routes a payment and verifies the result through local Horizon.
 
+## Test cases
+
+| Test | Description |
+| --- | --- |
+| `test_payment_routing` | Routes a payment through the contract and verifies the result via local Horizon. |
+| `test_emergency_withdraw_integration` | Deploys the contract, funds it with tokens, calls `emergency_withdraw` as the admin, and asserts the treasury received the withdrawn funds. |
+
 ## Deploying the contract only
 
 If you only need the contract deployed (e.g. to inspect it manually), run:

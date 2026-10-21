@@ -16,8 +16,9 @@ function isStreamingPath(pathname) {
  *
  * Requests that advertise a Content-Length are rejected up front when the
  * declared size exceeds the cap. Requests using Transfer-Encoding: chunked
- * omit Content-Length, so the running byte total is tracked on 'data' events
- * and the request is aborted with 413 once the cap is exceeded.
+ * (or multipart/form-data) omit Content-Length, so the running byte total is
+ * tracked on 'data' events and the request is aborted with 413 once the cap
+ * is exceeded.
  */
 function bodyLimit(options = {}) {
   const limit = options.limit || DEFAULT_LIMIT;
@@ -35,12 +36,31 @@ function bodyLimit(options = {}) {
       res.statusCode = 413;
       res.setHeader('Content-Type', 'application/json');
       return res.end(
-        JSON.stringify({ error: 'PAYLOAD_TOO_LARGE', limit })
+        JSON.stringify({ error: 'PAYLOAD_TOO_LARGE', code: 'PAYLOAD_TOO_LARGE', limit })
       );
     }
 
     let received = 0;
     let aborted = false;
+
+    function reject() {
+      if (aborted) {
+        return;
+      }
+      aborted = true;
+      req.removeListener('data', onData);
+      req.removeListener('end', onEnd);
+      if (!res.headersSent) {
+        res.statusCode = 413;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(
+          JSON.stringify({ error: 'PAYLOAD_TOO_LARGE', code: 'PAYLOAD_TOO_LARGE', limit })
+        );
+      }
+      if (typeof req.destroy === 'function') {
+        req.destroy();
+      }
+    }
 
     function onData(chunk) {
       if (aborted) {
@@ -48,15 +68,7 @@ function bodyLimit(options = {}) {
       }
       received += chunk.length;
       if (received > limit) {
-        aborted = true;
-        req.removeListener('data', onData);
-        req.removeListener('end', onEnd);
-        res.statusCode = 413;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: 'PAYLOAD_TOO_LARGE', limit }));
-        if (typeof req.destroy === 'function') {
-          req.destroy();
-        }
+        reject();
       }
     }
 

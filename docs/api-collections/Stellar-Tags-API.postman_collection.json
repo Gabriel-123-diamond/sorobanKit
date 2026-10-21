@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Stellar Tags API",
-    "description": "API Blueprint Collection for Stellar Tags (/lookup, /register, /health, and /transactions/export), following standardized JSON response and error envelopes according to JSend/API error specifications.",
+    "description": "API Blueprint Collection for Stellar Tags (/lookup, /register, /health, and /transactions/export), following standardized JSON response and error envelopes according to JSend/API error specifications.\n\nAPI Versioning: clients may select the API version via the `API-Version` header (e.g. `API-Version: 2`) or via the URL prefix (`/v1/...` or `/v2/...`). When neither is provided the API defaults to v1. See the \"API Versioning\" section of the README for the v1 -> v2 change log and the v1 end-of-life date.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -108,6 +108,96 @@
         "description": "Exports the transaction history for a Stellar address.\n\nResponses:\n- 200 OK: Returns the exported transaction data.\n- 404 NOT_FOUND: The address was not found on Horizon. This typically means the account has never been funded. Error message: \"Account not found on Horizon. The address may not yet be funded.\"\n- 500 INTERNAL_ERROR: An unexpected error occurred while contacting Horizon."
       },
       "response": []
+    },
+    {
+      "name": "v2 - Lookup User (API-Version header)",
+      "request": {
+        "method": "GET",
+        "header": [{"key": "API-Version", "value": "2", "description": "Selects API v2. Omit to default to v1."}],
+        "url": {
+          "raw": "{{baseUrl}}/lookup?address=GAE2S2XKT6H2A4ZJ6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4",
+          "host": ["{{baseUrl}}"],
+          "path": ["lookup"],
+          "query": [
+            {"key": "address", "value": "GAE2S2XKT6H2A4ZJ6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4", "description": "Search by exact Stellar public key (optional)."}
+          ]
+        },
+        "description": "v2 example: selects API v2 via the `API-Version: 2` header. Responses include the `API-Version` header echoing the resolved version."
+      },
+      "response": [
+        {
+          "name": "200 OK (v2)",
+          "originalRequest": {"method": "GET", "header": [{"key": "API-Version", "value": "2"}], "url": {"raw": "{{baseUrl}}/lookup?address=GAE2S2XKT6H2A4ZJ6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4", "host": ["{{baseUrl}}"], "path": ["lookup"]}},
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {"key": "Content-Type", "value": "application/json"},
+            {"key": "API-Version", "value": "2"}
+          ],
+          "body": "{\n  \"status\": \"success\",\n  \"data\": {\n    \"username\": \"testuser\",\n    \"address\": \"GAE2S2XKT6H2A4ZJ6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4\"\n  }\n}"
+        }
+      ]
+    },
+    {
+      "name": "v2 - Register User (URL prefix)",
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"testuser\",\n  \"address\": \"GAE2S2XKT6H2A4ZJ6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4\",\n  \"memo_type\": \"text\",\n  \"memo\": \"My Memo\",\n  \"signature\": \"\"\n}",
+          "options": {"raw": {"language": "json"}}
+        },
+        "url": {"raw": "{{baseUrl}}/v2/register", "host": ["{{baseUrl}}"], "path": ["v2", "register"]},
+        "description": "v2 example: selects API v2 via the `/v2` URL prefix instead of the `API-Version` header."
+      },
+      "response": [
+        {
+          "name": "200 OK (v2)",
+          "originalRequest": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{baseUrl}}/v2/register", "host": ["{{baseUrl}}"], "path": ["v2", "register"]}},
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {"key": "Content-Type", "value": "application/json"},
+            {"key": "API-Version", "value": "2"}
+          ],
+          "body": "{\n  \"status\": \"success\",\n  \"data\": {\n    \"username\": \"testuser\",\n    \"address\": \"GAE2S2XKT6H2A4ZJ6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4\"\n  }\n}"
+        }
+      ]
+    },
+    {
+      "name": "v1 - Lookup User (deprecated)",
+      "request": {
+        "method": "GET",
+        "header": [{"key": "API-Version", "value": "1", "description": "Explicitly selects API v1 (deprecated)."}],
+        "url": {
+          "raw": "{{baseUrl}}/v1/lookup?address=GAE2S2XKT6H2A4ZJ6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4",
+          "host": ["{{baseUrl}}"],
+          "path": ["v1", "lookup"],
+          "query": [
+            {"key": "address", "value": "GAE2S2XKT6H2A4ZJ6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4", "description": "Search by exact Stellar public key (optional)."}
+          ]
+        },
+        "description": "v1 example (deprecated). Responses include `Deprecation` and `Sunset` headers indicating the planned v1 end-of-life date. Migrate to v2."
+      },
+      "response": [
+        {
+          "name": "200 OK (v1, deprecated)",
+          "originalRequest": {"method": "GET", "header": [{"key": "API-Version", "value": "1"}], "url": {"raw": "{{baseUrl}}/v1/lookup?address=GAE2S2XKT6H2A4ZJ6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4", "host": ["{{baseUrl}}"], "path": ["v1", "lookup"]}},
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {"key": "Content-Type", "value": "application/json"},
+            {"key": "API-Version", "value": "1"},
+            {"key": "Deprecation", "value": "true"},
+            {"key": "Sunset", "value": "Wed, 31 Dec 2025 23:59:59 GMT"}
+          ],
+          "body": "{\n  \"status\": \"success\",\n  \"data\": {\n    \"username\": \"testuser\",\n    \"address\": \"GAE2S2XKT6H2A4ZJ6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4D6K4\"\n  }\n}"
+        }
+      ]
     }
   ],
   "variable": [

@@ -25,6 +25,27 @@ const paginationSchema = z.object({
 });
 
 /**
+ * Optional `assetCode` filter schema.
+ *
+ * Accepts any 1-12 character alphanumeric asset code (e.g. `XLM`, `yXLM`,
+ * `EURC`). The validated value is passed to Prisma as a parameterised
+ * `where` clause filter, never interpolated into SQL.
+ */
+const assetCodeSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(12)
+  .regex(/^[A-Za-z0-9]+$/, 'assetCode must be alphanumeric');
+
+/**
+ * Routing stats query schema: pagination plus an optional `assetCode` filter.
+ */
+const routingStatsQuerySchema = paginationSchema.extend({
+  assetCode: assetCodeSchema.optional(),
+});
+
+/**
  * Parse pagination query params, clamping `limit` to MAX_LIMIT and
  * falling back to defaults for invalid values.
  *
@@ -84,6 +105,8 @@ module.exports = {
   DEFAULT_LIMIT,
   MAX_LIMIT,
   paginationSchema,
+  assetCodeSchema,
+  routingStatsQuerySchema,
   parsePagination,
   buildPaginationMeta,
 };
